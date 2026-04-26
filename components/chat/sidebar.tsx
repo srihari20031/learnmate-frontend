@@ -20,13 +20,12 @@ export function Sidebar({
   onDeleteSession,
 }: SidebarProps) {
   return (
-    <aside className="w-64 bg-muted border-r border-border flex flex-col h-full">
+    <aside className="w-64 bg-gradient-to-b from-slate-900 to-slate-950 border-r border-slate-700/50 flex flex-col h-full backdrop-blur">
       {/* Header */}
-      <div className="p-4 border-b border-border">
+      <div className="p-4 border-b border-slate-700/50">
         <Button
           onClick={onNewChat}
-          className="w-full justify-start gap-2"
-          variant="outline"
+          className="w-full justify-start gap-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white border-0 shadow-lg hover:shadow-blue-500/30 transition-all duration-200"
         >
           <Plus className="w-4 h-4" />
           New Chat
@@ -36,24 +35,24 @@ export function Sidebar({
       {/* Sessions List */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
         {sessions.length === 0 ? (
-          <p className="text-xs text-muted-foreground text-center py-4">
+          <p className="text-xs text-slate-400 text-center py-4">
             No chat history yet
           </p>
         ) : (
           sessions.map((session) => (
             <div
               key={session.id}
-              className={`group flex items-center gap-2 p-3 rounded-lg cursor-pointer transition-colors ${
+              className={`group flex items-center gap-2 p-3 rounded-lg cursor-pointer transition-all duration-200 ${
                 activeSessionId === session.id
-                  ? 'bg-accent text-accent-foreground'
-                  : 'hover:bg-accent/50 text-foreground'
+                  ? 'bg-gradient-to-r from-blue-600/30 to-purple-600/30 border border-blue-500/50 text-white'
+                  : 'hover:bg-slate-800/50 text-slate-300 border border-transparent hover:border-slate-700/50'
               }`}
               onClick={() => onSelectSession(session.id)}
             >
               <MessageSquare className="w-4 h-4 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{session.title}</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-slate-500">
                   {session.messageCount} messages
                 </p>
               </div>
@@ -62,9 +61,9 @@ export function Sidebar({
                   e.stopPropagation();
                   onDeleteSession(session.id);
                 }}
-                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-400"
               >
-                <Trash2 className="w-4 h-4 text-destructive" />
+                <Trash2 className="w-4 h-4" />
               </button>
             </div>
           ))
@@ -72,10 +71,11 @@ export function Sidebar({
       </div>
 
       {/* Footer */}
-      <div className="p-4 border-t border-border">
-        <p className="text-xs text-muted-foreground text-center">
-          LearnMate v1.0
-        </p>
+      <div className="p-4 border-t border-slate-700/50">
+        <div className="text-xs text-slate-500 text-center flex items-center justify-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-gradient-to-r from-blue-400 to-purple-400 animate-pulse"></div>
+          <span>LearnMate v1.0</span>
+        </div>
       </div>
     </aside>
   );

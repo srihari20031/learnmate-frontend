@@ -31,13 +31,13 @@ export function ChatWindow({
   }, [messages, isLoading]);
 
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className="flex flex-col h-full bg-gradient-to-b from-slate-950 to-slate-900">
       {/* Messages Container */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto px-4 py-6"
+        className="flex-1 overflow-y-auto px-4 py-6 scroll-smooth"
       >
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-4xl mx-auto space-y-4">
           {messages.length === 0 ? (
             <EmptyState onSuggestionClick={onSuggestionClick} />
           ) : (

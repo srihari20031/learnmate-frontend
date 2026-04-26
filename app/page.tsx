@@ -138,7 +138,7 @@ export default function ChatPage() {
   }, [activeSessionId, handleNewChat]);
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 overflow-hidden">
       {/* Sidebar */}
       <Sidebar
         sessions={sessions}
@@ -149,7 +149,7 @@ export default function ChatPage() {
       />
 
       {/* Main Chat Area */}
-      <div className="flex-1">
+      <div className="flex-1 flex flex-col overflow-hidden">
         <ChatWindow
           messages={messages}
           isLoading={isLoading}

@@ -26,17 +26,19 @@ export function NotionCard({ url }: NotionCardProps) {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-3 px-4 py-3 bg-accent/10 border border-accent/30 rounded-lg hover:bg-accent/20 hover:border-accent/50 transition-colors group"
+      className="block w-full px-4 py-3 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/30 rounded-lg hover:from-amber-500/20 hover:to-orange-500/20 hover:border-amber-500/50 transition-all duration-300 group hover:shadow-lg hover:shadow-amber-500/10"
     >
-      <div className="flex-1">
-        <p className="text-sm font-medium text-foreground group-hover:text-accent transition-colors">
-          {getPageTitle(url)}
-        </p>
-        <p className="text-xs text-muted-foreground truncate">
-          {url}
-        </p>
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-amber-300 group-hover:text-amber-200 transition-colors">
+            {getPageTitle(url)}
+          </p>
+          <p className="text-xs text-amber-400/60 truncate">
+            {url}
+          </p>
+        </div>
+        <ExternalLink className="w-4 h-4 text-amber-400 flex-shrink-0 group-hover:text-amber-300 transition-colors" />
       </div>
-      <ExternalLink className="w-4 h-4 text-accent flex-shrink-0" />
     </a>
   );
 }

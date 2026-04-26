@@ -15,13 +15,13 @@ export function ChatMessage({ message, isLoading }: ChatMessageProps) {
 
   return (
     <div
-      className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}
+      className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4 message-${isUser ? 'user' : 'agent'}`}
     >
       <div
-        className={`max-w-2xl ${
+        className={`max-w-2xl rounded-3xl px-4 py-3 transition-all duration-300 ${
           isUser
-            ? 'bg-primary text-primary-foreground rounded-3xl rounded-tr-sm px-4 py-2'
-            : 'bg-muted text-foreground rounded-3xl rounded-tl-sm px-4 py-2'
+            ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-br-sm shadow-lg hover:shadow-blue-500/20 hover:shadow-2xl'
+            : 'bg-slate-800/50 backdrop-blur border border-slate-700/50 text-foreground rounded-bl-sm hover:bg-slate-800/70 transition-colors'
         }`}
       >
         {isLoading ? (
