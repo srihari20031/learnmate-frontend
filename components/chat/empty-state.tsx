@@ -30,7 +30,7 @@ export function EmptyState({ onSuggestionClick }: EmptyStateProps) {
         <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-blue-400 bg-clip-text text-transparent mb-3">
           LearnMate
         </h1>
-        <p className="text-base text-gray-400 mb-10 leading-relaxed">
+        <p className="text-base text-slate-300 mb-10 leading-relaxed">
           Learn any technology through conversation. I&apos;ll create structured notes in Notion for you.
         </p>
         

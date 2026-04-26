@@ -21,7 +21,7 @@ export function ChatMessage({ message, isLoading }: ChatMessageProps) {
         className={`max-w-2xl rounded-3xl px-4 py-3 transition-all duration-300 ${
           isUser
             ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-br-sm shadow-lg hover:shadow-blue-500/20 hover:shadow-2xl'
-            : 'bg-slate-800/50 backdrop-blur border border-slate-700/50 text-foreground rounded-bl-sm hover:bg-slate-800/70 transition-colors'
+            : 'bg-slate-800/50 backdrop-blur border border-slate-700/50 text-slate-100 rounded-bl-sm hover:bg-slate-800/70 transition-colors'
         }`}
       >
         {isLoading ? (
@@ -31,35 +31,35 @@ export function ChatMessage({ message, isLoading }: ChatMessageProps) {
             <div className="prose prose-invert max-w-none dark:prose-invert">
               <ReactMarkdown
                 components={{
-                  p: ({ children }) => <p className="text-sm mb-2 last:mb-0">{children}</p>,
+                  p: ({ children }) => <p className="text-sm mb-2 last:mb-0 text-slate-100">{children}</p>,
                   ul: ({ children }) => (
-                    <ul className="text-sm list-disc list-inside mb-2 space-y-1">
+                    <ul className="text-sm list-disc list-inside mb-2 space-y-1 text-slate-100">
                       {children}
                     </ul>
                   ),
                   ol: ({ children }) => (
-                    <ol className="text-sm list-decimal list-inside mb-2 space-y-1">
+                    <ol className="text-sm list-decimal list-inside mb-2 space-y-1 text-slate-100">
                       {children}
                     </ol>
                   ),
                   code: ({ children }) => (
-                    <code className="bg-black/30 rounded px-1.5 py-0.5 font-mono text-xs">
+                    <code className="bg-black/30 rounded px-1.5 py-0.5 font-mono text-xs text-blue-300">
                       {children}
                     </code>
                   ),
                   pre: ({ children }) => (
-                    <pre className="bg-black/30 rounded p-3 overflow-x-auto mb-2">
+                    <pre className="bg-black/30 rounded p-3 overflow-x-auto mb-2 text-slate-100">
                       {children}
                     </pre>
                   ),
                   h1: ({ children }) => (
-                    <h1 className="text-lg font-bold mb-2">{children}</h1>
+                    <h1 className="text-lg font-bold mb-2 text-blue-300">{children}</h1>
                   ),
                   h2: ({ children }) => (
-                    <h2 className="text-base font-bold mb-2">{children}</h2>
+                    <h2 className="text-base font-bold mb-2 text-blue-300">{children}</h2>
                   ),
                   h3: ({ children }) => (
-                    <h3 className="text-sm font-bold mb-2">{children}</h3>
+                    <h3 className="text-sm font-bold mb-2 text-blue-300">{children}</h3>
                   ),
                 }}
               >
