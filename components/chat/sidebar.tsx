@@ -2,6 +2,7 @@
 
 import { Plus, MessageSquare, Trash2, ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { NotionSettings } from './notion-settings';
 import { ChatSession } from '@/lib/chat-utils';
 
 interface SidebarProps {
@@ -79,6 +80,11 @@ export function Sidebar({
             </div>
           ))
         )}
+      </div>
+
+      {/* Notion Integration */}
+      <div className="px-3 pb-3">
+        <NotionSettings />
       </div>
 
       {/* Footer */}
