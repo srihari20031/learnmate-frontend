@@ -120,13 +120,8 @@
   --animate-float: float 3s ease-in-out infinite;
 }
 
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
+@utility animate-slide-in {
+  animation: slideIn 0.3s ease-out;
 }
 
 @layer components {
@@ -185,18 +180,6 @@
     50% {
       transform: translateY(-5px);
     }
-  }
-
-  .animate-slide-in {
-    animation: var(--animate-slide-in);
-  }
-
-  .animate-fade-in {
-    animation: var(--animate-fade-in);
-  }
-
-  .animate-pulse-glow {
-    animation: var(--animate-pulse-glow);
   }
 
   .animate-float {
