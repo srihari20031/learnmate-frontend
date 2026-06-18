@@ -115,6 +115,58 @@ export async function logout(): Promise<void> {
   }
 }
 
+// ── Chat upload ────────────────────────────────────────────────────────────
+
+export interface UploadResponse {
+  filename: string;
+  type: 'document' | 'image';
+  status: string;
+}
+
+export async function uploadFile(
+  sessionId: string,
+  file: File
+): Promise<UploadResponse> {
+  const token = getToken();
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(`${API_BASE}/api/chat/upload`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'session-id': sessionId,
+    },
+    body: formData,
+  });
+  return handleResponse<UploadResponse>(res);
+}
+
+// ── Learn flow ───────────────────────────────────────────────────────────────
+
+export interface LearnMessageResponse {
+  response: string;
+  session_id: string;
+  status: 'chatting' | 'completed';
+  notion_urls: string[];
+}
+
+export async function sendLearnMessage(
+  sessionId: string,
+  message: string
+): Promise<LearnMessageResponse> {
+  const res = await fetch(`${API_BASE}/api/learn/message`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json',
+      'session-id': sessionId,
+    },
+    body: JSON.stringify({ message }),
+  });
+  return handleResponse<LearnMessageResponse>(res);
+}
+
 // ── Notion Public OAuth ──────────────────────────────────────────────────────
 // User authorises against their own Notion workspace.
 // Backend exchanges the code and stores the resulting token in MongoDB.
@@ -130,6 +182,120 @@ export interface NotionStatusResponse {
 
 export interface NotionDisconnectResponse {
   success: boolean;
+}
+
+// ── Chat sessions ───────────────────────────────────────────────────────────
+
+export interface ChatSessionResponse {
+  chat_id: string;
+  session_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatListResponse {
+  chats: ChatSessionResponse[];
+}
+
+export interface ChatMessageResponse {
+  role?: string;
+  content: string;
+  created_at?: string;
+  notion_urls?: string[];
+}
+
+export interface ChatMessagesResponse {
+  messages: ChatMessageResponse[];
+  session_id?: string;
+}
+
+export interface MessageResponse {
+  response: string;
+  session_id?: string;
+  status?: 'chatting' | 'completed';
+  notion_urls?: string[];
+}
+
+export interface UpdateChatTitleRequest {
+  title: string;
+}
+
+export interface UpdateChatTitleResponse {
+  success: boolean;
+}
+
+export interface ResetChatResponse {
+  success: boolean;
+  message?: string;
+}
+
+export async function updateChatTitle(
+  sessionId: string,
+  title: string
+): Promise<UpdateChatTitleResponse> {
+  const res = await fetch(
+    `${API_BASE}/api/chat/chats/${encodeURIComponent(sessionId)}/title`,
+    {
+      method: 'PATCH',
+      headers: {
+        ...authHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title }),
+    }
+  );
+  return handleResponse<UpdateChatTitleResponse>(res);
+}
+
+export async function createChat(title = 'New Chat'): Promise<ChatSessionResponse> {
+  const res = await fetch(`${API_BASE}/api/chat/chats`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title }),
+  });
+  return handleResponse<ChatSessionResponse>(res);
+}
+
+export async function listChats(): Promise<ChatListResponse> {
+  const res = await fetch(`${API_BASE}/api/chat/chats`, {
+    headers: authHeaders(),
+  });
+  return handleResponse<ChatListResponse>(res);
+}
+
+export async function getMessages(sessionId: string): Promise<ChatMessagesResponse> {
+  const res = await fetch(`${API_BASE}/api/chat/session/${encodeURIComponent(sessionId)}`, {
+    headers: authHeaders(),
+  });
+  return handleResponse<ChatMessagesResponse>(res);
+}
+
+export async function sendMessage(
+  sessionId: string,
+  message: string
+): Promise<MessageResponse> {
+  const res = await fetch(`${API_BASE}/api/chat/message`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json',
+      'session-id': sessionId,
+    },
+    body: JSON.stringify({ message }),
+  });
+  return handleResponse<MessageResponse>(res);
+}
+
+export async function resetChat(sessionId: string): Promise<ResetChatResponse> {
+  const res = await fetch(`${API_BASE}/api/chat/reset/${encodeURIComponent(sessionId)}`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  return handleResponse<ResetChatResponse>(res);
 }
 
 /**
@@ -180,4 +346,34 @@ export async function disconnectNotion(): Promise<NotionDisconnectResponse> {
     headers: authHeaders(),
   });
   return handleResponse<NotionDisconnectResponse>(res);
+}
+
+// ── Notion topic creation ─────────────────────────────────────────────────────
+
+export interface CreateTopicRequest {
+  title: string;
+  content: string;
+  session_id?: string;
+}
+
+export interface CreateTopicResponse {
+  status: string;
+  notion_url: string;
+}
+
+export async function createNotionTopic(
+  title: string,
+  content: string,
+  sessionId?: string
+): Promise<string> {
+  const res = await fetch(`${API_BASE}/api/notion/create-topic`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title, content, session_id: sessionId }),
+  });
+  const data = await handleResponse<CreateTopicResponse>(res);
+  return data.notion_url;
 }

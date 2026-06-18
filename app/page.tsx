@@ -6,37 +6,82 @@ import { ChatWindow } from '@/components/chat/chat-window';
 import { Sidebar } from '@/components/chat/sidebar';
 import { LogOut } from 'lucide-react';
 import {
-  generateSessionId,
   createMessage,
   truncateTitle,
   Message,
   ChatSession,
 } from '@/lib/chat-utils';
-import { logout, authHeaders, getCurrentUser } from '@/lib/api';
+import {
+  createChat,
+  listChats,
+  getMessages,
+  sendMessage,
+  resetChat,
+  logout,
+  getCurrentUser,
+  updateChatTitle,
+  uploadFile,
+  ChatSessionResponse,
+  ChatMessageResponse,
+  UpdateChatTitleResponse,
+  UploadResponse,
+} from '@/lib/api';
+
+const toChatSession = (chat: ChatSessionResponse): ChatSession => ({
+  id: chat.session_id,
+  title: chat.title || 'New Chat',
+  createdAt: Date.parse(chat.created_at) || Date.now(),
+  messageCount: 0,
+});
+
+const toMessage = (message: ChatMessageResponse, index: number): Message => {
+  const timestamp = message.created_at
+    ? Date.parse(message.created_at) || Date.now() + index
+    : Date.now() + index;
+  const role = message.role === 'user' ? 'user' : 'agent';
+
+  return {
+    id: `${role}-${index}-${timestamp}`,
+    role,
+    content: message.content,
+    timestamp,
+    status: role === 'agent' ? 'completed' : undefined,
+    notionUrls: message.notion_urls,
+  };
+};
+
+const toMessages = (messages: ChatMessageResponse[]): Message[] =>
+  messages.map((message, index) => toMessage(message, index));
 
 export default function ChatPage() {
   const router = useRouter();
 
-  // ── Auth state ───────────────────────────────────────────────────────────
-  const [userId, setUserId] = useState<string>('');
   const [userEmail, setUserEmail] = useState<string>('');
   const [userName, setUserName] = useState<string>('');
   const [authReady, setAuthReady] = useState(false);
 
-  // ── Chat state ───────────────────────────────────────────────────────────
-  const [sessionId, setSessionId] = useState<string>(() => generateSessionId());
+  const [activeSessionId, setActiveSessionId] = useState<string>('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string>(sessionId);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-// ── Load current user on mount ───────────────────────────────────────────
+  const createBackendChat = useCallback(async () => {
+    const chat = await createChat();
+    const session = toChatSession(chat);
+
+    setSessions((prev) => [session, ...prev.filter((s) => s.id !== session.id)]);
+    setActiveSessionId(session.id);
+    setMessages([]);
+
+    return session;
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
         const profile = await getCurrentUser();
-        setUserId(profile.id);
         setUserEmail(profile.email);
         setUserName(profile.full_name);
         setAuthReady(true);
@@ -46,10 +91,53 @@ export default function ChatPage() {
     })();
   }, [router]);
 
-  // ── Still loading profile ────────────────────────────────────────────────
-  const isLoading = !authReady;
+  useEffect(() => {
+    if (!authReady) return;
 
-  // ── Send message to FastAPI ──────────────────────────────────────────────
+    let cancelled = false;
+
+    const loadChats = async () => {
+      try {
+        const data = await listChats();
+        if (cancelled) return;
+
+        const loadedSessions = data.chats.map(toChatSession);
+        setSessions(loadedSessions);
+
+        if (loadedSessions.length > 0) {
+          const latestSession = loadedSessions[0];
+          setActiveSessionId(latestSession.id);
+
+          const messagesData = await getMessages(latestSession.id);
+          if (cancelled) return;
+
+          const loadedMessages = toMessages(messagesData.messages);
+          setMessages(loadedMessages);
+          setSessions((prev) =>
+            prev.map((session) =>
+              session.id === latestSession.id
+                ? { ...session, messageCount: loadedMessages.length }
+                : session
+            )
+          );
+        } else {
+          await createBackendChat();
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error('[Chat]', error);
+          await createBackendChat();
+        }
+      }
+    };
+
+    loadChats();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, createBackendChat]);
+
   const handleSendMessage = useCallback(
     async (userMessage: string) => {
       if (!userMessage.trim() || !activeSessionId) return;
@@ -59,63 +147,88 @@ export default function ChatPage() {
         setMessages((prev) => [...prev, userMsg]);
         setIsSending(true);
 
-        const authHeader = authHeaders();
-
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/learn/message`, {
-          method: 'POST',
-          headers: {
-            ...authHeader,
-            'Content-Type': 'application/json',
-            'session-id': activeSessionId,
-          },
-          body: JSON.stringify({ message: userMessage }),
-        });
-
-        if (!response.ok) {
-          const errText = await response.text();
-          throw new Error(`Backend error ${response.status}: ${errText}`);
-        }
-
-        const data = await response.json();
+        const data = await sendMessage(activeSessionId, userMessage);
         const agentMsg = createMessage(data.response, 'agent', data.status, data.notion_urls);
         setMessages((prev) => [...prev, agentMsg]);
 
-        if (!sessions.find((s) => s.id === activeSessionId)) {
-          setSessions((prev) => [
+        setSessions((prev) => {
+          const existingSession = prev.find((session) => session.id === activeSessionId);
+
+          if (existingSession && existingSession.messageCount === 0) {
+            const newTitle = truncateTitle(userMessage);
+            updateChatTitle(activeSessionId, newTitle).catch((error) =>
+              console.error('[API] Failed to update title', error)
+            );
+            return prev.map((session) =>
+              session.id === activeSessionId
+                ? { ...session, title: newTitle, messageCount: session.messageCount + 2 }
+                : session
+            );
+          }
+
+          if (existingSession) {
+            return prev.map((session) =>
+              session.id === activeSessionId
+                ? { ...session, messageCount: session.messageCount + 2 }
+                : session
+            );
+          }
+
+          return [
             { id: activeSessionId, title: truncateTitle(userMessage), createdAt: Date.now(), messageCount: 2 },
             ...prev,
-          ]);
-        } else {
-          setSessions((prev) =>
-            prev.map((s) => (s.id === activeSessionId ? { ...s, messageCount: s.messageCount + 2 } : s))
-          );
-        }
+          ];
+        });
       } catch (error) {
         console.error('[API]', error);
       } finally {
         setIsSending(false);
       }
     },
-    [activeSessionId, sessions]
+    [activeSessionId]
   );
 
-  const handleNewChat = useCallback(() => {
-    setSessionId(generateSessionId());
-    setActiveSessionId(generateSessionId());
-    setMessages([]);
-  }, []);
+  const handleNewChat = useCallback(async () => {
+    try {
+      await createBackendChat();
+    } catch (error) {
+      console.error('[Chat]', error);
+    }
+  }, [createBackendChat]);
 
-  const handleSelectSession = useCallback((id: string) => {
+  const handleSelectSession = useCallback(async (id: string) => {
     setActiveSessionId(id);
     setMessages([]);
+
+    try {
+      const messagesData = await getMessages(id);
+      const loadedMessages = toMessages(messagesData.messages);
+      setMessages(loadedMessages);
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === id ? { ...session, messageCount: loadedMessages.length } : session
+        )
+      );
+    } catch (error) {
+      console.error('[Chat]', error);
+      setMessages([]);
+    }
   }, []);
 
   const handleDeleteSession = useCallback(
-    (id: string) => {
-      setSessions((prev) => prev.filter((s) => s.id !== id));
-      if (activeSessionId === id) handleNewChat();
+    async (id: string) => {
+      try {
+        await resetChat(id);
+        setSessions((prev) => prev.filter((session) => session.id !== id));
+
+        if (activeSessionId === id) {
+          await createBackendChat();
+        }
+      } catch (error) {
+        console.error('[Chat]', error);
+      }
     },
-    [activeSessionId, handleNewChat]
+    [activeSessionId, createBackendChat]
   );
 
   const handleLogout = useCallback(async () => {
@@ -123,8 +236,24 @@ export default function ChatPage() {
     router.replace('/login');
   }, [router]);
 
-  // ── Render ───────────────────────────────────────────────────────────────
-  if (isLoading) {
+  const handleFileUpload = useCallback(
+    async (file: File) => {
+      if (!activeSessionId) return;
+
+      try {
+        setIsUploading(true);
+        const result = await uploadFile(activeSessionId, file);
+        console.log('[Upload]', result.filename, result.type, result.status);
+      } catch (error) {
+        console.error('[Upload]', error);
+      } finally {
+        setIsUploading(false);
+      }
+    },
+    [activeSessionId]
+  );
+
+  if (!authReady) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-950">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-600 border-t-blue-500" />
@@ -146,7 +275,6 @@ export default function ChatPage() {
       )}
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top bar */}
         <div className="flex items-center justify-between px-4 pt-3 pb-1 text-white/70">
           <button
             onClick={() => setSidebarOpen(true)}
@@ -181,7 +309,9 @@ export default function ChatPage() {
         <ChatWindow
           messages={messages}
           isLoading={isSending}
+          isUploading={isUploading}
           onSendMessage={handleSendMessage}
+          onFileUpload={handleFileUpload}
           onSuggestionClick={handleSendMessage}
         />
       </div>

@@ -9,14 +9,18 @@ import { InputBar } from './input-bar';
 interface ChatWindowProps {
   messages: Message[];
   isLoading: boolean;
+  isUploading?: boolean;
   onSendMessage: (message: string) => void;
+  onFileUpload?: (file: File) => void;
   onSuggestionClick: (suggestion: string) => void;
 }
 
 export function ChatWindow({
   messages,
   isLoading,
+  isUploading,
   onSendMessage,
+  onFileUpload,
   onSuggestionClick,
 }: ChatWindowProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -56,6 +60,13 @@ export function ChatWindow({
                   isLoading={true}
                 />
               )}
+              {isUploading && (
+                <div className="flex justify-start mb-4">
+                  <div className="max-w-2xl rounded-3xl px-4 py-3 bg-slate-800/50 backdrop-blur border border-slate-700/50 text-slate-100 rounded-bl-sm">
+                    <p className="text-sm text-slate-400">Uploading file...</p>
+                  </div>
+                </div>
+              )}
               <div ref={messagesEndRef} />
             </>
           )}
@@ -65,7 +76,8 @@ export function ChatWindow({
       {/* Input Bar */}
       <InputBar
         onSend={onSendMessage}
-        disabled={isLoading}
+        onUpload={onFileUpload}
+        disabled={isLoading || isUploading}
       />
     </div>
   );
