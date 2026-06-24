@@ -23,14 +23,14 @@ export function EmptyState({ onSuggestionClick }: EmptyStateProps) {
 
       <div className="max-w-md relative z-10 animate-fade-in flex flex-col items-center">
         {/* Logo/Title - using subtle bounce instead of float to avoid clipping */}
-        <div className="mb-8 inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30 hover:shadow-lg hover:shadow-blue-500/20 transition-shadow duration-300">
+        <div className="mb-8 inline-flex items-center justify-center w-16 h-16 rounded-full bg-surface-2 border border-border hover:shadow-lg hover:shadow-border transition-shadow duration-300">
           <span className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">LM</span>
         </div>
 
-        <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-blue-400 bg-clip-text text-transparent mb-4">
+        <h1 className="font-display text-5xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-blue-400 bg-clip-text text-transparent mb-4">
           LearnMate
         </h1>
-        <p className="text-base text-slate-300 mb-12 leading-relaxed max-w-sm">
+        <p className="text-base text-muted-foreground mb-12 leading-relaxed max-w-sm">
           Learn any technology through conversation. I&apos;ll create structured notes in Notion for you.
         </p>
         

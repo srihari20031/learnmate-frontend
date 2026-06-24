@@ -79,10 +79,11 @@ export async function register(params: { email: string; password: string; full_n
   return handleResponse<RegisterResponse>(res);
 }
 
-export async function getCurrentUser(): Promise<{ id: string; email: string; full_name: string; is_active: boolean }> {
+export async function getCurrentUser(signal?: AbortSignal): Promise<{ id: string; email: string; full_name: string; is_active: boolean }> {
   const token = getToken();
   const res = await fetch(`${API_BASE}/api/auth/me`, {
     headers: { Authorization: `Bearer ${token}` },
+    signal,
   });
   if (!res.ok) {
     throw new Error(`Authentication failed: ${res.status}`);
@@ -201,8 +202,15 @@ export interface ChatListResponse {
 export interface ChatMessageResponse {
   role?: string;
   content: string;
-  created_at?: string;
+  sent_at?: string | null;
   notion_urls?: string[];
+  attachments?: Array<{
+    id?: string;
+    filename: string;
+    type: 'document' | 'image';
+    mime_type?: string;
+    base64?: string;
+  }>;
 }
 
 export interface ChatMessagesResponse {
@@ -276,8 +284,28 @@ export async function getMessages(sessionId: string): Promise<ChatMessagesRespon
 
 export async function sendMessage(
   sessionId: string,
-  message: string
+  message: string,
+  files?: File[]
 ): Promise<MessageResponse> {
+  if (files && files.length > 0) {
+    // Send as multipart/form-data when files are attached
+    const formData = new FormData();
+    formData.append('message', message);
+    files.forEach((file) => formData.append('attachments', file));
+
+    const res = await fetch(`${API_BASE}/api/chat/message`, {
+      method: 'POST',
+      headers: {
+        ...authHeaders(),
+        'session-id': sessionId,
+        // Do NOT set Content-Type — browser sets it with boundary automatically
+      },
+      body: formData,
+    });
+    return handleResponse<MessageResponse>(res);
+  }
+
+  // No files — send as JSON (existing behaviour)
   const res = await fetch(`${API_BASE}/api/chat/message`, {
     method: 'POST',
     headers: {

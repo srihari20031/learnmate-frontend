@@ -1,5 +1,12 @@
 import { v4 as uuidv4 } from 'uuid';
 
+export interface Attachment {
+  filename: string;
+  type: 'document' | 'image';
+  mime_type?: string;
+  base64?: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'agent';
@@ -7,6 +14,7 @@ export interface Message {
   timestamp: number;
   status?: 'chatting' | 'completed';
   notionUrls?: string[];
+  attachments?: Attachment[];
 }
 
 export interface ChatSession {
@@ -24,7 +32,8 @@ export const createMessage = (
   content: string,
   role: 'user' | 'agent',
   status?: 'chatting' | 'completed',
-  notionUrls?: string[]
+  notionUrls?: string[],
+  attachments?: Message['attachments']
 ): Message => {
   return {
     id: uuidv4(),
@@ -33,6 +42,7 @@ export const createMessage = (
     timestamp: Date.now(),
     status,
     notionUrls,
+    attachments,
   };
 };
 
@@ -44,15 +54,38 @@ export const truncateTitle = (text: string, maxLength: number = 30): string => {
 export const formatTimestamp = (timestamp: number): string => {
   const now = new Date();
   const messageTime = new Date(timestamp);
-  const diffMs = now.getTime() - messageTime.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
 
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
+  const isToday =
+    now.getFullYear() === messageTime.getFullYear() &&
+    now.getMonth() === messageTime.getMonth() &&
+    now.getDate() === messageTime.getDate();
 
-  return messageTime.toLocaleDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday =
+    yesterday.getFullYear() === messageTime.getFullYear() &&
+    yesterday.getMonth() === messageTime.getMonth() &&
+    yesterday.getDate() === messageTime.getDate();
+
+  const timeStr = messageTime.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+
+  if (isToday) return `Today at ${timeStr}`;
+  if (isYesterday) return `Yesterday at ${timeStr}`;
+
+  // Within the current year — show "Jun 19 at 3:21 PM"
+  if (now.getFullYear() === messageTime.getFullYear()) {
+    const dateStr = messageTime.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    return `${dateStr} at ${timeStr}`;
+  }
+
+  // Older — show "Jun 19, 2025 at 3:21 PM"
+  const dateStr = messageTime.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  return `${dateStr} at ${timeStr}`;
 };

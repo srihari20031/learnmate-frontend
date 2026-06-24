@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { ChatWindow } from '@/components/chat/chat-window';
 import { Sidebar } from '@/components/chat/sidebar';
 import { LogOut } from 'lucide-react';
@@ -10,6 +11,7 @@ import {
   truncateTitle,
   Message,
   ChatSession,
+  Attachment,
 } from '@/lib/chat-utils';
 import {
   createChat,
@@ -20,11 +22,9 @@ import {
   logout,
   getCurrentUser,
   updateChatTitle,
-  uploadFile,
   ChatSessionResponse,
   ChatMessageResponse,
   UpdateChatTitleResponse,
-  UploadResponse,
 } from '@/lib/api';
 
 const toChatSession = (chat: ChatSessionResponse): ChatSession => ({
@@ -35,10 +35,21 @@ const toChatSession = (chat: ChatSessionResponse): ChatSession => ({
 });
 
 const toMessage = (message: ChatMessageResponse, index: number): Message => {
-  const timestamp = message.created_at
-    ? Date.parse(message.created_at) || Date.now() + index
-    : Date.now() + index;
+  let sentAt = message.sent_at;
+  if (sentAt && !sentAt.endsWith('Z') && !sentAt.includes('+')) {
+    sentAt = sentAt + 'Z';
+  }
+  const timestamp = sentAt ? Date.parse(sentAt) || Date.now() + index : Date.now() + index;
   const role = message.role === 'user' ? 'user' : 'agent';
+
+  const attachments: Attachment[] | undefined = message.attachments?.length
+    ? message.attachments.map((a) => ({
+        filename: a.filename,
+        type: a.type,
+        mime_type: a.mime_type,
+        base64: a.base64,
+      }))
+    : undefined;
 
   return {
     id: `${role}-${index}-${timestamp}`,
@@ -47,6 +58,7 @@ const toMessage = (message: ChatMessageResponse, index: number): Message => {
     timestamp,
     status: role === 'agent' ? 'completed' : undefined,
     notionUrls: message.notion_urls,
+    attachments,
   };
 };
 
@@ -55,6 +67,7 @@ const toMessages = (messages: ChatMessageResponse[]): Message[] =>
 
 export default function ChatPage() {
   const router = useRouter();
+  const isMobile = useIsMobile();
 
   const [userEmail, setUserEmail] = useState<string>('');
   const [userName, setUserName] = useState<string>('');
@@ -63,9 +76,17 @@ export default function ChatPage() {
   const [activeSessionId, setActiveSessionId] = useState<string>('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isSending, setIsSending] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Initialize based on isMobile: open on desktop, closed on mobile
+  const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
+
+  // Ref for the hamburger toggle button — used to restore focus when the mobile sidebar closes
+  const toggleButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Sync sidebar state when viewport crosses the mobile/desktop breakpoint
+  useEffect(() => {
+    setSidebarOpen(!isMobile);
+  }, [isMobile]);
 
   const createBackendChat = useCallback(async () => {
     const chat = await createChat();
@@ -79,16 +100,25 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
     (async () => {
       try {
         const profile = await getCurrentUser();
+        if (cancelled) return;
         setUserEmail(profile.email);
         setUserName(profile.full_name);
         setAuthReady(true);
       } catch {
-        router.replace('/login');
+        if (!cancelled) {
+          router.replace('/login');
+        }
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   useEffect(() => {
@@ -139,16 +169,16 @@ export default function ChatPage() {
   }, [authReady, createBackendChat]);
 
   const handleSendMessage = useCallback(
-    async (userMessage: string) => {
+    async (userMessage: string, files?: File[]) => {
       if (!userMessage.trim() || !activeSessionId) return;
 
       try {
-        const userMsg = createMessage(userMessage, 'user');
+        const userMsg = createMessage(userMessage, 'user', undefined, undefined, undefined);
         setMessages((prev) => [...prev, userMsg]);
         setIsSending(true);
 
-        const data = await sendMessage(activeSessionId, userMessage);
-        const agentMsg = createMessage(data.response, 'agent', data.status, data.notion_urls);
+        const data = await sendMessage(activeSessionId, userMessage, files);
+        const agentMsg = createMessage(data.response, 'agent', 'completed', data.notion_urls);
         setMessages((prev) => [...prev, agentMsg]);
 
         setSessions((prev) => {
@@ -236,23 +266,6 @@ export default function ChatPage() {
     router.replace('/login');
   }, [router]);
 
-  const handleFileUpload = useCallback(
-    async (file: File) => {
-      if (!activeSessionId) return;
-
-      try {
-        setIsUploading(true);
-        const result = await uploadFile(activeSessionId, file);
-        console.log('[Upload]', result.filename, result.type, result.status);
-      } catch (error) {
-        console.error('[Upload]', error);
-      } finally {
-        setIsUploading(false);
-      }
-    },
-    [activeSessionId]
-  );
-
   if (!authReady) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-950">
@@ -263,27 +276,39 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 overflow-hidden">
-      {sidebarOpen && (
-        <Sidebar
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          onNewChat={handleNewChat}
-          onSelectSession={handleSelectSession}
-          onDeleteSession={handleDeleteSession}
-          onToggle={() => setSidebarOpen(false)}
+      {isMobile && sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
         />
       )}
+      <Sidebar
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onNewChat={handleNewChat}
+        onSelectSession={handleSelectSession}
+        onDeleteSession={handleDeleteSession}
+        onToggle={() => setSidebarOpen((prev) => !prev)}
+        isOpen={sidebarOpen}
+        isMobile={isMobile}
+        toggleButtonRef={toggleButtonRef as React.RefObject<HTMLElement>}
+      />
 
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between px-4 pt-3 pb-1 text-white/70">
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {/* Header bar — always visible, houses the sidebar toggle */}
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-[var(--surface-1)] flex-shrink-0">
+          {/* Sidebar toggle — hamburger when closed, panel icon when open */}
           <button
-            onClick={() => setSidebarOpen(true)}
-            className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200"
+            ref={toggleButtonRef}
+            onClick={() => setSidebarOpen((prev) => !prev)}
+            className="p-2 rounded-lg text-foreground hover:bg-[var(--surface-2)] transition-colors"
+            aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+            aria-expanded={sidebarOpen}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
-            Inbox
           </button>
 
           <div className="flex items-center gap-3">
@@ -299,7 +324,7 @@ export default function ChatPage() {
             <button
               onClick={handleLogout}
               className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-red-400 transition-colors"
-              title="Sign out"
+              aria-label="Sign out"
             >
               <LogOut className="w-4 h-4" />
             </button>
@@ -309,9 +334,7 @@ export default function ChatPage() {
         <ChatWindow
           messages={messages}
           isLoading={isSending}
-          isUploading={isUploading}
           onSendMessage={handleSendMessage}
-          onFileUpload={handleFileUpload}
           onSuggestionClick={handleSendMessage}
         />
       </div>
