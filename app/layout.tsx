@@ -57,9 +57,15 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className="bg-background">
+    <html
+      lang="en"
+      className="bg-background dark"
+      style={{ colorScheme: 'dark' }}
+      suppressHydrationWarning
+    >
       <body
         className={`${displayFont.variable} ${bodyFont.variable} ${monoFont.variable} font-sans antialiased bg-background text-foreground`}
+        suppressHydrationWarning
       >
         <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme="dark">
           {children}

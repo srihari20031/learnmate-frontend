@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, Fragment } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { PanelLeftClose, Trash2, SquarePen } from 'lucide-react';
+import { PanelLeftClose, Trash2, SquarePen, Plus } from 'lucide-react';
 import { useFocusTrap } from '@/hooks/use-focus-trap';
 import { NotionSettings } from './notion-settings';
-import { ChatSession } from '@/lib/chat-utils';
+import { DocumentLibrary } from './document-library';
+import { MyProfile } from './my-profile';
+import { ChatSession, groupLabelForDate } from '@/lib/chat-utils';
 
 interface SidebarProps {
   sessions: ChatSession[];
@@ -81,21 +83,39 @@ export function Sidebar({
   // ── Shared sidebar content ────────────────────────────────────────────────
   const sidebarContent = (
     <>
-      {/* Header — toggle + new chat, like Claude/ChatGPT */}
+      {/* Brand header — wordmark + collapse toggle */}
       <div className="px-3 py-3 flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-2 pl-1">
+          <div
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-[11px] font-bold text-accent-foreground shadow-[var(--elev-1)]"
+            style={{ background: 'var(--gradient-accent)' }}
+            aria-hidden="true"
+          >
+            LM
+          </div>
+          <span className="font-display text-lg leading-none text-gradient-brand">
+            LearnMate
+          </span>
+        </div>
         <button
           onClick={onToggle}
           aria-label="Close sidebar"
-          className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-[var(--surface-2)] transition-colors duration-150"
+          className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-2 transition-colors duration-150"
         >
           <PanelLeftClose className="w-5 h-5" aria-hidden="true" />
         </button>
+      </div>
+
+      {/* New chat — prominent primary action */}
+      <div className="px-3 pb-2 flex-shrink-0">
         <button
           onClick={onNewChat}
           aria-label="New Chat"
-          className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-[var(--surface-2)] transition-colors duration-150"
+          className="group flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-accent-foreground shadow-[var(--elev-2)] hover:opacity-90 transition-opacity duration-150"
+          style={{ background: 'var(--gradient-accent)' }}
         >
-          <SquarePen className="w-5 h-5" aria-hidden="true" />
+          <Plus className="w-4 h-4" strokeWidth={2.5} aria-hidden="true" />
+          New chat
         </button>
       </div>
 
@@ -113,54 +133,73 @@ export function Sidebar({
             No conversations yet
           </p>
         ) : (
-          sessions.map((session, index) => {
-            const isActive = session.id === activeSessionId;
-            const isFocused = index === focusedIndex;
+          (() => {
+            let lastGroup = '';
+            return sessions.map((session, index) => {
+              const isActive = session.id === activeSessionId;
+              const isFocused = index === focusedIndex;
+              const group = groupLabelForDate(session.createdAt);
+              const showHeader = group !== lastGroup;
+              lastGroup = group;
 
-            return (
-              <div
-                key={session.id}
-                role="option"
-                aria-selected={isActive}
-                tabIndex={-1}
-                onClick={() => onSelectSession(session.id)}
-                className={`group relative flex items-center justify-between mx-2 px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors duration-100 ${
-                  isActive
-                    ? 'bg-[var(--surface-2)] text-foreground font-medium'
-                    : 'text-muted-foreground hover:bg-[var(--surface-1)] hover:text-foreground'
-                } ${isFocused && !isActive ? 'ring-2 ring-[var(--ring)] ring-offset-1 ring-offset-[var(--background)]' : ''}`}
-              >
-                {/* Active indicator — left-edge bar */}
-                {isActive && (
-                  <span
-                    className="absolute left-0 top-2 bottom-2 w-0.5 bg-accent rounded-r"
-                    aria-hidden="true"
-                  />
-                )}
+              return (
+                <Fragment key={session.id}>
+                  {showHeader && (
+                    <div className="px-4 pt-3.5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60 select-none">
+                      {group}
+                    </div>
+                  )}
+                  <div
+                    role="option"
+                    aria-selected={isActive}
+                    tabIndex={-1}
+                    onClick={() => onSelectSession(session.id)}
+                    className={`group relative flex items-center justify-between mx-2 px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors duration-100 ${
+                      isActive
+                        ? 'bg-surface-2 text-foreground font-semibold'
+                        : 'text-muted-foreground font-normal hover:bg-surface-2/50 hover:text-foreground'
+                    } ${isFocused && !isActive ? 'ring-2 ring-[var(--ring)] ring-offset-1 ring-offset-[var(--background)]' : ''}`}
+                  >
+                    {/* Active indicator — left-edge gradient bar */}
+                    {isActive && (
+                      <span
+                        className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
+                        style={{ background: 'var(--gradient-accent)' }}
+                        aria-hidden="true"
+                      />
+                    )}
 
-                <span className="truncate flex-1 leading-snug">
-                  {session.title}
-                </span>
+                    <span className="truncate flex-1 leading-snug">
+                      {session.title}
+                    </span>
 
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteSession(session.id);
-                  }}
-                  aria-label={`Delete ${session.title}`}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex-shrink-0 ml-1 p-1 rounded hover:text-red-400 text-muted-foreground"
-                  tabIndex={-1}
-                >
-                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                </button>
-              </div>
-            );
-          })
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteSession(session.id);
+                      }}
+                      aria-label={`Delete ${session.title}`}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex-shrink-0 ml-1 p-1 rounded hover:text-red-400 text-muted-foreground"
+                      tabIndex={-1}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                    </button>
+                  </div>
+                </Fragment>
+              );
+            });
+          })()
         )}
       </div>
 
-      {/* Notion Integration */}
-      <div className="px-3 pb-3 flex-shrink-0">
+      {/* Chat documents — per-conversation reference material */}
+      <div className="px-3 pb-2 pt-2 flex-shrink-0 border-t border-border/60">
+        <DocumentLibrary sessionId={activeSessionId} />
+      </div>
+
+      {/* Account — user-wide settings that apply to every chat */}
+      <div className="px-3 pb-3 pt-2 flex-shrink-0 border-t border-border/60 space-y-2">
+        <MyProfile />
         <NotionSettings />
       </div>
 

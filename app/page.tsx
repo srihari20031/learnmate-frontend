@@ -9,6 +9,7 @@ import { LogOut } from 'lucide-react';
 import {
   createMessage,
   truncateTitle,
+  stripExtractedContent,
   Message,
   ChatSession,
   Attachment,
@@ -18,6 +19,7 @@ import {
   listChats,
   getMessages,
   sendMessage,
+  sendMessageStream,
   resetChat,
   logout,
   getCurrentUser,
@@ -34,6 +36,14 @@ const toChatSession = (chat: ChatSessionResponse): ChatSession => ({
   messageCount: 0,
 });
 
+/**
+ * A never-used chat: still carrying the default "New Chat" title and no
+ * messages. We reuse one of these instead of creating a fresh chat on every
+ * load (a real conversation always gets titled from its first message).
+ */
+const isEmptyChat = (session: ChatSession): boolean =>
+  session.messageCount === 0 && (!session.title || session.title === 'New Chat');
+
 const toMessage = (message: ChatMessageResponse, index: number): Message => {
   let sentAt = message.sent_at;
   if (sentAt && !sentAt.endsWith('Z') && !sentAt.includes('+')) {
@@ -41,6 +51,10 @@ const toMessage = (message: ChatMessageResponse, index: number): Message => {
   }
   const timestamp = sentAt ? Date.parse(sentAt) || Date.now() + index : Date.now() + index;
   const role = message.role === 'user' ? 'user' : 'agent';
+
+  // User messages come back with the extracted document text appended for LLM
+  // context — strip it so the bubble only shows what the user typed.
+  const content = role === 'user' ? stripExtractedContent(message.content) : message.content;
 
   const attachments: Attachment[] | undefined = message.attachments?.length
     ? message.attachments.map((a) => ({
@@ -54,10 +68,12 @@ const toMessage = (message: ChatMessageResponse, index: number): Message => {
   return {
     id: `${role}-${index}-${timestamp}`,
     role,
-    content: message.content,
+    content,
     timestamp,
     status: role === 'agent' ? 'completed' : undefined,
     notionUrls: message.notion_urls,
+    notionPages: message.notion_pages,
+    sources: message.sources,
     attachments,
   };
 };
@@ -76,6 +92,9 @@ export default function ChatPage() {
   const [activeSessionId, setActiveSessionId] = useState<string>('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isSending, setIsSending] = useState(false);
+  // True while a session's history is being fetched — prevents the empty
+  // state from flashing during the async gap when switching chats.
+  const [isLoadingMessages, setIsLoadingMessages] = useState(true);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   // Initialize based on isMobile: open on desktop, closed on mobile
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
@@ -134,30 +153,44 @@ export default function ChatPage() {
         const loadedSessions = data.chats.map(toChatSession);
         setSessions(loadedSessions);
 
-        if (loadedSessions.length > 0) {
-          const latestSession = loadedSessions[0];
-          setActiveSessionId(latestSession.id);
+        // Land on the most recent chat (top of the list). Only create a chat
+        // when the user has none — reloads must not pile up empty "New Chat"s.
+        if (loadedSessions.length === 0) {
+          await createBackendChat();
+          return;
+        }
 
-          const messagesData = await getMessages(latestSession.id);
+        const target = loadedSessions[0];
+        setActiveSessionId(target.id);
+
+        // A failure loading this chat's history must NOT create a new chat —
+        // just show it empty (an unused chat legitimately has no messages).
+        try {
+          const messagesData = await getMessages(target.id);
           if (cancelled) return;
 
           const loadedMessages = toMessages(messagesData.messages);
           setMessages(loadedMessages);
           setSessions((prev) =>
             prev.map((session) =>
-              session.id === latestSession.id
+              session.id === target.id
                 ? { ...session, messageCount: loadedMessages.length }
                 : session
             )
           );
-        } else {
-          await createBackendChat();
+        } catch (err) {
+          if (!cancelled) {
+            console.error('[Chat] Failed to load messages', err);
+            setMessages([]);
+          }
         }
       } catch (error) {
         if (!cancelled) {
-          console.error('[Chat]', error);
+          console.error('[Chat] Failed to load chats', error);
           await createBackendChat();
         }
+      } finally {
+        if (!cancelled) setIsLoadingMessages(false);
       }
     };
 
@@ -168,67 +201,151 @@ export default function ChatPage() {
     };
   }, [authReady, createBackendChat]);
 
+  // Bump the session's message count (and title, on the first turn) once a
+  // reply has landed. Shared by the streaming and fallback paths.
+  const finalizeSession = useCallback(
+    (sessionId: string, userMessage: string) => {
+      setSessions((prev) => {
+        const existingSession = prev.find((session) => session.id === sessionId);
+
+        if (existingSession && existingSession.messageCount === 0) {
+          const newTitle = truncateTitle(userMessage);
+          updateChatTitle(sessionId, newTitle).catch((error) =>
+            console.error('[API] Failed to update title', error)
+          );
+          return prev.map((session) =>
+            session.id === sessionId
+              ? { ...session, title: newTitle, messageCount: session.messageCount + 2 }
+              : session
+          );
+        }
+
+        if (existingSession) {
+          return prev.map((session) =>
+            session.id === sessionId
+              ? { ...session, messageCount: session.messageCount + 2 }
+              : session
+          );
+        }
+
+        return [
+          { id: sessionId, title: truncateTitle(userMessage), createdAt: Date.now(), messageCount: 2 },
+          ...prev,
+        ];
+      });
+    },
+    []
+  );
+
   const handleSendMessage = useCallback(
     async (userMessage: string, files?: File[]) => {
       if (!userMessage.trim() || !activeSessionId) return;
+      const sessionId = activeSessionId;
+
+      const userMsg = createMessage(userMessage, 'user', undefined, undefined, undefined);
+      setMessages((prev) => [...prev, userMsg]);
+      setIsSending(true);
+
+      // The assistant bubble is created lazily on the first stream frame so the
+      // "typing" loader shows until content actually starts arriving.
+      let agentId: string | null = null;
+      let assistantText = '';
+
+      const ensureAgent = () => {
+        if (agentId) return;
+        const agentMsg = createMessage('', 'agent', 'chatting');
+        agentId = agentMsg.id;
+        setMessages((prev) => [...prev, agentMsg]);
+        setIsSending(false);
+      };
+
+      const patchAgent = (patch: Partial<Message>) => {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === agentId ? { ...m, ...patch } : m))
+        );
+      };
 
       try {
-        const userMsg = createMessage(userMessage, 'user', undefined, undefined, undefined);
-        setMessages((prev) => [...prev, userMsg]);
-        setIsSending(true);
-
-        const data = await sendMessage(activeSessionId, userMessage, files);
-        const agentMsg = createMessage(data.response, 'agent', 'completed', data.notion_urls);
-        setMessages((prev) => [...prev, agentMsg]);
-
-        setSessions((prev) => {
-          const existingSession = prev.find((session) => session.id === activeSessionId);
-
-          if (existingSession && existingSession.messageCount === 0) {
-            const newTitle = truncateTitle(userMessage);
-            updateChatTitle(activeSessionId, newTitle).catch((error) =>
-              console.error('[API] Failed to update title', error)
-            );
-            return prev.map((session) =>
-              session.id === activeSessionId
-                ? { ...session, title: newTitle, messageCount: session.messageCount + 2 }
-                : session
-            );
-          }
-
-          if (existingSession) {
-            return prev.map((session) =>
-              session.id === activeSessionId
-                ? { ...session, messageCount: session.messageCount + 2 }
-                : session
-            );
-          }
-
-          return [
-            { id: activeSessionId, title: truncateTitle(userMessage), createdAt: Date.now(), messageCount: 2 },
-            ...prev,
-          ];
+        await sendMessageStream(sessionId, userMessage, files, {
+          onSources: (sources) => {
+            ensureAgent();
+            patchAgent({ sources });
+          },
+          onDelta: (fullText) => {
+            ensureAgent();
+            assistantText = fullText;
+            patchAgent({ content: fullText, status: 'chatting' });
+          },
+          onStatus: () => {
+            ensureAgent();
+            patchAgent({ generatingNotes: true });
+          },
+          onDone: (evt) => {
+            ensureAgent();
+            patchAgent({
+              content: evt.response || assistantText,
+              status: 'completed',
+              notionUrls: evt.notion_urls,
+              notionPages: evt.notion_pages,
+              sources: evt.sources ?? undefined,
+              generatingNotes: false,
+            });
+            finalizeSession(sessionId, userMessage);
+          },
+          onError: (message) => {
+            ensureAgent();
+            patchAgent({ status: 'completed', generatingNotes: false, error: message });
+          },
         });
-      } catch (error) {
-        console.error('[API]', error);
+      } catch (streamError) {
+        // Streaming endpoint unreachable (e.g. 404 / network) and nothing was
+        // rendered yet — fall back to the non-streaming message endpoint.
+        if (!agentId) {
+          try {
+            const data = await sendMessage(sessionId, userMessage, files);
+            ensureAgent();
+            patchAgent({
+              content: data.response,
+              status: 'completed',
+              notionUrls: data.notion_urls,
+            });
+            finalizeSession(sessionId, userMessage);
+          } catch (fallbackError) {
+            console.error('[API] Fallback send failed', fallbackError);
+            ensureAgent();
+            patchAgent({ status: 'completed', error: 'Failed to send message. Please try again.' });
+          }
+        } else {
+          console.error('[API] Stream interrupted', streamError);
+          patchAgent({ status: 'completed', generatingNotes: false, error: 'The response was interrupted.' });
+        }
       } finally {
         setIsSending(false);
       }
     },
-    [activeSessionId]
+    [activeSessionId, finalizeSession]
   );
 
   const handleNewChat = useCallback(async () => {
+    // If an empty chat already exists, switch to it rather than creating a
+    // duplicate (matches how Claude reuses the pending "new chat").
+    const existingEmpty = sessions.find(isEmptyChat);
+    if (existingEmpty) {
+      setActiveSessionId(existingEmpty.id);
+      setMessages([]);
+      return;
+    }
     try {
       await createBackendChat();
     } catch (error) {
       console.error('[Chat]', error);
     }
-  }, [createBackendChat]);
+  }, [sessions, createBackendChat]);
 
   const handleSelectSession = useCallback(async (id: string) => {
     setActiveSessionId(id);
     setMessages([]);
+    setIsLoadingMessages(true);
 
     try {
       const messagesData = await getMessages(id);
@@ -242,6 +359,8 @@ export default function ChatPage() {
     } catch (error) {
       console.error('[Chat]', error);
       setMessages([]);
+    } finally {
+      setIsLoadingMessages(false);
     }
   }, []);
 
@@ -268,14 +387,23 @@ export default function ChatPage() {
 
   if (!authReady) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-950">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-600 border-t-blue-500" />
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-accent" />
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 overflow-hidden">
+    <div
+      className="flex h-screen overflow-hidden"
+      style={{
+        background:
+          'radial-gradient(85% 55% at 50% -8%, rgba(245, 194, 0, 0.10) 0%, transparent 60%), ' +
+          'radial-gradient(70% 55% at 100% 105%, rgba(245, 158, 11, 0.08) 0%, transparent 60%), ' +
+          'radial-gradient(60% 45% at 20% 110%, rgba(245, 194, 0, 0.05) 0%, transparent 60%), ' +
+          'var(--background)',
+      }}
+    >
       {isMobile && sidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50"
@@ -297,12 +425,12 @@ export default function ChatPage() {
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Header bar — always visible, houses the sidebar toggle */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-[var(--surface-1)] flex-shrink-0">
+        <div className="glass flex items-center justify-between px-3 py-2.5 border-b border-border/70 flex-shrink-0 z-10">
           {/* Sidebar toggle — hamburger when closed, panel icon when open */}
           <button
             ref={toggleButtonRef}
             onClick={() => setSidebarOpen((prev) => !prev)}
-            className="p-2 rounded-lg text-foreground hover:bg-[var(--surface-2)] transition-colors"
+            className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-2 transition-colors"
             aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
             aria-expanded={sidebarOpen}
           >
@@ -311,19 +439,20 @@ export default function ChatPage() {
             </svg>
           </button>
 
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
-                {(userName || userEmail).charAt(0).toUpperCase()}
-              </div>
-              <div className="text-right hidden sm:block">
-                <p className="text-xs text-slate-500">{userEmail}</p>
-                {userName && <p className="text-sm text-slate-300">{userName}</p>}
-              </div>
+          <div className="flex items-center gap-2">
+            <div className="text-right hidden sm:block leading-tight mr-1">
+              {userName && <p className="text-sm font-medium text-foreground">{userName}</p>}
+              <p className="text-xs text-muted-foreground">{userEmail}</p>
+            </div>
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold text-accent-foreground shadow-[var(--elev-1)]"
+              style={{ background: 'var(--gradient-accent)' }}
+            >
+              {(userName || userEmail).charAt(0).toUpperCase()}
             </div>
             <button
               onClick={handleLogout}
-              className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-red-400 transition-colors"
+              className="p-2 rounded-lg hover:bg-surface-2 text-muted-foreground hover:text-red-400 transition-colors"
               aria-label="Sign out"
             >
               <LogOut className="w-4 h-4" />
@@ -334,6 +463,7 @@ export default function ChatPage() {
         <ChatWindow
           messages={messages}
           isLoading={isSending}
+          isLoadingHistory={isLoadingMessages}
           onSendMessage={handleSendMessage}
           onSuggestionClick={handleSendMessage}
         />

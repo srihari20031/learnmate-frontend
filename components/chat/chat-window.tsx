@@ -14,6 +14,8 @@ import { NewMessagesPill } from './new-messages-pill';
 interface ChatWindowProps {
   messages: Message[];
   isLoading: boolean;
+  /** True while a session's history is being fetched (chat switch / first load). */
+  isLoadingHistory?: boolean;
   onSendMessage: (message: string, files?: File[]) => void;
   onSuggestionClick: (suggestion: string) => void;
 }
@@ -21,6 +23,7 @@ interface ChatWindowProps {
 export function ChatWindow({
   messages,
   isLoading,
+  isLoadingHistory = false,
   onSendMessage,
   onSuggestionClick,
 }: ChatWindowProps) {
@@ -68,14 +71,18 @@ export function ChatWindow({
   };
 
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className="flex flex-col h-full">
       {/* Messages Thread Container */}
       <div
         ref={containerRef}
         className="relative flex-1 overflow-y-auto px-4 py-6 scroll-smooth"
       >
-        <div className="max-w-4xl mx-auto space-y-2">
-          {messages.length === 0 && !isLoading ? (
+        <div className="max-w-4xl mx-auto">
+          {messages.length === 0 && isLoadingHistory ? (
+            <div className="flex h-[60vh] items-center justify-center">
+              <div className="h-7 w-7 animate-spin rounded-full border-2 border-border border-t-accent" />
+            </div>
+          ) : messages.length === 0 && !isLoading ? (
             <EmptyState onSuggestionClick={onSuggestionClick} />
           ) : (
             <>
@@ -85,16 +92,22 @@ export function ChatWindow({
                 ))}
               </AnimatePresence>
 
-              {/* Loading indicator — rendered as assistant bubble */}
+              {/* Loading indicator — bubble-less, matches assistant turns */}
               {isLoading && (
-                <div className="flex justify-start mb-4">
-                  <div className="flex items-start gap-3">
-                    <div className="w-6 h-6 rounded-full bg-surface-2 border border-border flex items-center justify-center flex-shrink-0">
-                      <Bot className="w-3.5 h-3.5 text-muted-foreground" />
+                <div className="w-full max-w-3xl mb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div
+                      className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 shadow-[var(--elev-1)]"
+                      style={{ background: 'var(--gradient-accent)' }}
+                    >
+                      <Bot className="w-3.5 h-3.5 text-accent-foreground" />
                     </div>
-                    <div className="max-w-2xl px-4 py-3 bg-[var(--surface-2)] border border-border rounded-3xl rounded-bl-sm shadow-[0_1px_3px_0_var(--border)]">
-                      <LoadingIndicator />
-                    </div>
+                    <span className="text-xs font-semibold tracking-wide text-foreground/70">
+                      LearnMate
+                    </span>
+                  </div>
+                  <div className="pl-8">
+                    <LoadingIndicator />
                   </div>
                 </div>
               )}

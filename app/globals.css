@@ -59,41 +59,50 @@ textarea:focus-visible {
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* ── Dark theme — "Virtec" inspired: deep navy-charcoal + golden-amber accent ── */
 .dark {
-  --background: oklch(0.16 0.008 250);
-  --surface-1: oklch(0.20 0.008 250);
-  --surface-2: oklch(0.24 0.007 250);
-  --foreground: oklch(0.95 0.005 250);
-  --muted-foreground: oklch(0.65 0.010 250);
-  --accent: oklch(0.72 0.15 255);
-  --border: oklch(0.27 0.008 250);
-  --card: oklch(0.16 0.008 250);
-  --card-foreground: oklch(0.95 0.005 250);
-  --popover: oklch(0.16 0.008 250);
-  --popover-foreground: oklch(0.95 0.005 250);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.24 0.007 250);
-  --secondary-foreground: oklch(0.95 0.005 250);
-  --muted: oklch(0.20 0.008 250);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --input: oklch(0.27 0.008 250);
-  --ring: oklch(0.72 0.15 255);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.20 0.008 250);
-  --sidebar-foreground: oklch(0.95 0.005 250);
-  --sidebar-primary: oklch(0.72 0.15 255);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.24 0.007 250);
-  --sidebar-accent-foreground: oklch(0.95 0.005 250);
-  --sidebar-border: oklch(0.27 0.008 250);
-  --sidebar-ring: oklch(0.72 0.15 255);
+  --background: #0d0f1a;
+  --surface-1: #16182b;
+  --surface-2: #1e2130;
+  --surface-3: #2a2d3e;
+  --foreground: #f3f4f7;
+  --muted-foreground: #9aa0b0;
+  --accent: #f5c200;            /* brand gold */
+  --accent-2: #f59e0b;          /* warm amber — gradient/second glow */
+  --accent-foreground: #14151f; /* dark ink for text/icons on gold fills */
+  --gradient-accent: linear-gradient(135deg, #ffd24d 0%, #f5c200 50%, #f0a500 100%);
+  --border: #2a2d3e;
+  --border-strong: #3a3d4e;
+  --elev-1: 0 1px 2px 0 rgb(0 0 0 / 0.30);
+  --elev-2: 0 4px 16px -2px rgb(0 0 0 / 0.40);
+  --elev-3: 0 12px 40px -8px rgb(0 0 0 / 0.55);
+  --glow-accent: 0 0 0 1px rgba(245, 194, 0, 0.40), 0 8px 28px -6px rgba(245, 194, 0, 0.30);
+  --card: #0d0f1a;
+  --card-foreground: #f3f4f7;
+  --popover: #16182b;
+  --popover-foreground: #f3f4f7;
+  --primary: #f5c200;
+  --primary-foreground: #14151f;
+  --secondary: #1e2130;
+  --secondary-foreground: #f3f4f7;
+  --muted: #16182b;
+  --destructive: oklch(0.55 0.20 25);
+  --destructive-foreground: oklch(0.97 0.02 25);
+  --input: #2a2d3e;
+  --ring: #f5c200;
+  --chart-1: #f5c200;
+  --chart-2: #f59e0b;
+  --chart-3: #4ade80;
+  --chart-4: #60a5fa;
+  --chart-5: #f87171;
+  --sidebar: #111322;
+  --sidebar-foreground: #f3f4f7;
+  --sidebar-primary: #f5c200;
+  --sidebar-primary-foreground: #14151f;
+  --sidebar-accent: #1e2130;
+  --sidebar-accent-foreground: #f3f4f7;
+  --sidebar-border: #2a2d3e;
+  --sidebar-ring: #f5c200;
 }
 
 /* ── Base body font ──────────────────────────────────────────────────────────
@@ -105,6 +114,52 @@ body {
   font-family: var(--font-plus-jakarta-sans), 'Plus Jakarta Sans', system-ui, sans-serif;
 }
 
+/* Branded text selection — subtle accent wash. */
+::selection {
+  background: color-mix(in oklch, var(--accent) 30%, transparent);
+  color: var(--foreground);
+}
+
+/* ── Refined scrollbars ──────────────────────────────────────────────────────
+   Thin, subtle, track-less scrollbars that fit the sleek dark surface. They
+   only become clearly visible on hover, keeping the chrome quiet at rest.
+────────────────────────────────────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--foreground) 14%, transparent) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklch, var(--foreground) 12%, transparent);
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklch, var(--foreground) 24%, transparent);
+}
+
+/* Frosted-glass surface — translucent fill + blur for elevated chrome. */
+.glass {
+  background: color-mix(in oklch, var(--surface-1) 72%, transparent);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+}
+
+/* Brand gradient text — used for the wordmark / logo. */
+.text-gradient-brand {
+  background: var(--gradient-accent);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 @theme inline {
   --font-sans: var(--font-plus-jakarta-sans);
   --font-mono: var(--font-jetbrains-mono);
@@ -113,6 +168,7 @@ body {
   --color-background: var(--background);
   --color-surface-1: var(--surface-1);
   --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
@@ -129,6 +185,7 @@ body {
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);

@@ -133,16 +133,17 @@ export function InputBar({
           onChange={handleFileSelect}
           className="hidden"
           multiple
+          data-testid="composer-file-input"
         />
 
         {/* Composer shell — rounded pill that grows with content */}
         <div
-          className="relative flex flex-col rounded-2xl border border-border transition-shadow duration-200"
+          className="glass relative flex flex-col rounded-2xl border transition-all duration-200"
           style={{
-            background: 'var(--surface-1)',
-            boxShadow: isFocused
-              ? '0 4px 32px 0 rgba(0,0,0,0.28)'
-              : '0 2px 12px 0 rgba(0,0,0,0.12)',
+            borderColor: isFocused
+              ? 'color-mix(in oklch, var(--accent) 55%, var(--border))'
+              : 'var(--border)',
+            boxShadow: isFocused ? 'var(--glow-accent)' : 'var(--elev-2)',
           }}
         >
 
@@ -185,9 +186,10 @@ export function InputBar({
               className={[
                 'h-8 w-8 rounded-full flex items-center justify-center transition-all duration-150',
                 isSendDisabled
-                  ? 'bg-[var(--surface-2)] text-muted-foreground opacity-40 cursor-not-allowed pointer-events-none'
-                  : 'bg-accent text-accent-foreground hover:opacity-90 shadow-sm',
+                  ? 'bg-surface-2 text-muted-foreground opacity-40 cursor-not-allowed pointer-events-none'
+                  : 'text-accent-foreground hover:opacity-90 shadow-[var(--elev-2)]',
               ].join(' ')}
+              style={isSendDisabled ? undefined : { background: 'var(--gradient-accent)' }}
             >
               <ArrowUp className="w-4 h-4" strokeWidth={2.5} />
             </motion.button>

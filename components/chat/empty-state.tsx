@@ -15,26 +15,29 @@ export function EmptyState({ onSuggestionClick }: EmptyStateProps) {
 
   return (
     <div className="flex flex-col items-center justify-center h-full text-center px-4 relative overflow-visible">
-      {/* Animated gradient background */}
-      <div className="absolute inset-0 opacity-30 animate-pulse-glow pointer-events-none">
-        <div className="absolute top-20 left-20 w-72 h-72 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20"></div>
-        <div className="absolute top-40 right-20 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20"></div>
+      {/* Soft accent glow background */}
+      <div className="absolute inset-0 opacity-60 animate-pulse-glow pointer-events-none">
+        <div className="absolute top-24 left-1/4 w-80 h-80 rounded-full filter blur-[100px] opacity-20" style={{ background: 'var(--accent)' }}></div>
+        <div className="absolute top-44 right-1/4 w-80 h-80 rounded-full filter blur-[100px] opacity-20" style={{ background: 'var(--accent-2)' }}></div>
       </div>
 
       <div className="max-w-md relative z-10 animate-fade-in flex flex-col items-center">
-        {/* Logo/Title - using subtle bounce instead of float to avoid clipping */}
-        <div className="mb-8 inline-flex items-center justify-center w-16 h-16 rounded-full bg-surface-2 border border-border hover:shadow-lg hover:shadow-border transition-shadow duration-300">
-          <span className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">LM</span>
+        {/* Logo */}
+        <div
+          className="mb-7 inline-flex items-center justify-center w-16 h-16 rounded-2xl text-accent-foreground text-xl font-bold shadow-[var(--elev-3)] animate-float"
+          style={{ background: 'var(--gradient-accent)' }}
+        >
+          LM
         </div>
 
-        <h1 className="font-display text-5xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-blue-400 bg-clip-text text-transparent mb-4">
+        <h1 className="font-display text-5xl mb-4 text-gradient-brand">
           LearnMate
         </h1>
         <p className="text-base text-muted-foreground mb-12 leading-relaxed max-w-sm">
           Learn any technology through conversation. I&apos;ll create structured notes in Notion for you.
         </p>
-        
-        <div className="flex flex-col gap-3 w-full max-w-sm">
+
+        <div className="flex flex-col gap-2.5 w-full max-w-sm">
           {suggestions.map((suggestion) => (
             <SuggestionChip
               key={suggestion}

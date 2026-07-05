@@ -4,22 +4,29 @@ import { ExternalLink } from 'lucide-react';
 
 interface NotionCardProps {
   url: string;
+  /** Authoritative topic title from the backend, if available. */
+  title?: string;
 }
 
-export function NotionCard({ url }: NotionCardProps) {
-  const getPageTitle = (urlString: string): string => {
-    try {
-      const urlObj = new URL(urlString);
-      const hashPart = urlObj.hash;
-      if (hashPart) {
-        const pageId = hashPart.replace('#', '').split('?')[0];
-        return pageId.length > 0 ? `Notion Page (${pageId.substring(0, 8)}...)` : 'Notion Page';
-      }
-      return 'Notion Page';
-    } catch {
-      return 'Notion Page';
-    }
-  };
+/**
+ * Derive a human-readable topic from a Notion URL slug.
+ * Notion pages are addressed as `.../My-Topic-Title-<32 hex chars>`, so we take
+ * the last path segment, drop the trailing page id, and turn dashes into spaces.
+ */
+function titleFromUrl(urlString: string): string {
+  try {
+    const { pathname } = new URL(urlString);
+    const segment = pathname.split('/').filter(Boolean).pop() ?? '';
+    const slug = segment.replace(/-?[0-9a-f]{32}$/i, '');
+    const title = decodeURIComponent(slug || segment).replace(/-/g, ' ').trim();
+    return title.length > 0 ? title : 'Notion Page';
+  } catch {
+    return 'Notion Page';
+  }
+}
+
+export function NotionCard({ url, title }: NotionCardProps) {
+  const pageTitle = title?.trim() || titleFromUrl(url);
 
   return (
     <a
@@ -31,7 +38,7 @@ export function NotionCard({ url }: NotionCardProps) {
       <div className="flex items-center gap-3">
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-amber-300 group-hover:text-amber-200 transition-colors">
-            {getPageTitle(url)}
+            {pageTitle}
           </p>
           <p className="text-xs text-amber-400/60 truncate">
             {url}

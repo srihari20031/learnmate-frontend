@@ -23,6 +23,8 @@
  * Token is stored in sessionStorage so it's cleared when the tab closes.
  */
 
+import type { Source, NotionPage } from './chat-utils';
+
 type LoginResponse = { access_token: string; token_type: string };
 type RegisterResponse = { id: string; email: string; full_name: string; is_active: boolean };
 
@@ -51,6 +53,25 @@ async function handleResponse<T>(res: Response): Promise<T> {
     throw new Error(`API error ${res.status}: ${text}`);
   }
   return res.json() as Promise<T>;
+}
+
+/**
+ * Extract a human-readable message from a FastAPI error response. `detail` is a
+ * string for HTTPException (400/422 we raise), or an array of validation errors.
+ */
+async function errorDetail(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json();
+    const detail = body?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+      const msg = detail.map((e) => e?.msg).filter(Boolean).join('; ');
+      return msg || fallback;
+    }
+    return fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 export type { LoginResponse, RegisterResponse };
@@ -116,31 +137,59 @@ export async function logout(): Promise<void> {
   }
 }
 
-// ── Chat upload ────────────────────────────────────────────────────────────
+// ── Document library (async upload + status polling) ─────────────────────────
+// POST /api/chat/upload returns instantly (HTTP 202). A document then indexes in
+// the background — poll GET /api/documents/{id}/status until it is ready. An
+// image has nothing to index and comes back already done. Branch on the body's
+// type/status, NOT the HTTP code (202 for both).
 
 export interface UploadResponse {
+  /** Present for documents (used to poll status). Absent for images. */
+  document_id?: string;
   filename: string;
   type: 'document' | 'image';
-  status: string;
+  /** "processing" for a document being indexed; "uploaded" for an image. */
+  status: 'processing' | 'uploaded' | string;
+}
+
+export type DocumentStatus = 'processing' | 'ready' | 'failed';
+
+export interface DocumentStatusResponse {
+  document_id: string;
+  filename: string;
+  status: DocumentStatus;
+  chunk_count?: number;
+  uploaded_at?: string;
 }
 
 export async function uploadFile(
   sessionId: string,
   file: File
 ): Promise<UploadResponse> {
-  const token = getToken();
   const formData = new FormData();
   formData.append('file', file);
 
   const res = await fetch(`${API_BASE}/api/chat/upload`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${token}`,
+      ...authHeaders(),
       'session-id': sessionId,
+      // No Content-Type — the browser sets the multipart boundary itself.
     },
     body: formData,
   });
   return handleResponse<UploadResponse>(res);
+}
+
+/** Poll the indexing status of an uploaded document. */
+export async function getDocumentStatus(
+  documentId: string
+): Promise<DocumentStatusResponse> {
+  const res = await fetch(
+    `${API_BASE}/api/documents/${encodeURIComponent(documentId)}/status`,
+    { headers: authHeaders() }
+  );
+  return handleResponse<DocumentStatusResponse>(res);
 }
 
 // ── Learn flow ───────────────────────────────────────────────────────────────
@@ -204,6 +253,10 @@ export interface ChatMessageResponse {
   content: string;
   sent_at?: string | null;
   notion_urls?: string[];
+  // Optional richer fields — rendered on reload once the backend persists them
+  // with each stored message (see backend note).
+  notion_pages?: NotionPage[];
+  sources?: Source[];
   attachments?: Array<{
     id?: string;
     filename: string;
@@ -287,35 +340,144 @@ export async function sendMessage(
   message: string,
   files?: File[]
 ): Promise<MessageResponse> {
-  if (files && files.length > 0) {
-    // Send as multipart/form-data when files are attached
-    const formData = new FormData();
-    formData.append('message', message);
-    files.forEach((file) => formData.append('attachments', file));
+  // The backend endpoint uses FastAPI Form(...)/File(...), so it expects
+  // multipart/form-data on every request — even a text-only message. Always
+  // send FormData; attach files when present.
+  const formData = new FormData();
+  formData.append('message', message);
+  files?.forEach((file) => formData.append('attachments', file));
 
-    const res = await fetch(`${API_BASE}/api/chat/message`, {
-      method: 'POST',
-      headers: {
-        ...authHeaders(),
-        'session-id': sessionId,
-        // Do NOT set Content-Type — browser sets it with boundary automatically
-      },
-      body: formData,
-    });
-    return handleResponse<MessageResponse>(res);
-  }
-
-  // No files — send as JSON (existing behaviour)
   const res = await fetch(`${API_BASE}/api/chat/message`, {
     method: 'POST',
     headers: {
       ...authHeaders(),
-      'Content-Type': 'application/json',
       'session-id': sessionId,
+      // Do NOT set Content-Type — the browser sets it with the multipart
+      // boundary automatically.
     },
-    body: JSON.stringify({ message }),
+    body: formData,
   });
   return handleResponse<MessageResponse>(res);
+}
+
+// ── Streaming chat (SSE) ──────────────────────────────────────────────────────
+// POST /api/chat/message/stream streams the reply as Server-Sent Events. We read
+// the body manually via getReader() rather than EventSource, because EventSource
+// cannot attach the Authorization: Bearer header our auth requires.
+
+export interface StreamDoneEvent {
+  response: string;
+  status?: string;
+  notion_urls?: string[];
+  /** Optional: saved pages with titles. Falls back to notion_urls when absent. */
+  notion_pages?: NotionPage[];
+  sources?: Source[];
+}
+
+export interface StreamHandlers {
+  /** Retrieved sources — arrive before any text. */
+  onSources?: (sources: Source[]) => void;
+  /** A token chunk. `fullText` is the accumulated reply so far. */
+  onDelta?: (fullText: string, chunk: string) => void;
+  /** Post-answer status, e.g. "generating_notes". */
+  onStatus?: (status: string) => void;
+  /** Authoritative final state. */
+  onDone?: (evt: StreamDoneEvent) => void;
+  /** An error frame emitted by the server mid-stream. */
+  onError?: (message: string) => void;
+}
+
+/**
+ * Consume the SSE stream for a chat message. Resolves when the stream ends.
+ * Throws if the connection can't be established (non-2xx or no body) so the
+ * caller can fall back to the non-streaming {@link sendMessage} endpoint.
+ */
+export async function sendMessageStream(
+  sessionId: string,
+  message: string,
+  files: File[] | undefined,
+  handlers: StreamHandlers,
+  signal?: AbortSignal
+): Promise<void> {
+  const formData = new FormData();
+  formData.append('message', message);
+  files?.forEach((file) => formData.append('attachments', file));
+
+  const res = await fetch(`${API_BASE}/api/chat/message/stream`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      'session-id': sessionId,
+      // No Content-Type — the browser sets the multipart boundary itself.
+    },
+    body: formData,
+    signal,
+  });
+
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => '<no body>');
+    throw new Error(`Stream error ${res.status}: ${text}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullText = '';
+
+  const handleFrame = (frame: string) => {
+    // A frame may contain multiple lines; the payload is the `data: ` line.
+    const line = frame.split('\n').find((l) => l.startsWith('data: '));
+    if (!line) return;
+
+    let evt: { type?: string; [k: string]: unknown };
+    try {
+      evt = JSON.parse(line.slice(6));
+    } catch {
+      return; // ignore malformed frame
+    }
+
+    switch (evt.type) {
+      case 'sources':
+        handlers.onSources?.((evt.sources as Source[]) ?? []);
+        break;
+      case 'delta': {
+        const chunk = (evt.text as string) ?? '';
+        fullText += chunk;
+        handlers.onDelta?.(fullText, chunk);
+        break;
+      }
+      case 'status':
+        handlers.onStatus?.((evt.status as string) ?? '');
+        break;
+      case 'done':
+        handlers.onDone?.({
+          response: (evt.response as string) ?? fullText,
+          status: evt.status as string | undefined,
+          notion_urls: (evt.notion_urls as string[]) ?? [],
+          notion_pages: (evt.notion_pages as NotionPage[]) ?? undefined,
+          sources: (evt.sources as Source[]) ?? undefined,
+        });
+        break;
+      case 'error':
+        handlers.onError?.((evt.message as string) ?? 'Streaming failed.');
+        break;
+    }
+  };
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const frames = buffer.split('\n\n');
+    buffer = frames.pop() ?? ''; // keep the trailing partial frame
+    for (const frame of frames) handleFrame(frame);
+  }
+
+  // Flush any complete frame left in the buffer after the stream closes.
+  const tail = buffer.trim();
+  if (tail) handleFrame(tail);
 }
 
 export async function resetChat(sessionId: string): Promise<ResetChatResponse> {
@@ -394,14 +556,75 @@ export async function createNotionTopic(
   content: string,
   sessionId?: string
 ): Promise<string> {
-  const res = await fetch(`${API_BASE}/api/notion/create-topic`, {
+  // Backend takes title/content/session_id as query params, not a JSON body.
+  const url = new URL(`${API_BASE}/api/notion/create-topic`);
+  url.searchParams.set('title', title);
+  url.searchParams.set('content', content);
+  if (sessionId) url.searchParams.set('session_id', sessionId);
+
+  const res = await fetch(url.toString(), {
     method: 'POST',
-    headers: {
-      ...authHeaders(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ title, content, session_id: sessionId }),
+    headers: authHeaders(),
   });
   const data = await handleResponse<CreateTopicResponse>(res);
   return data.notion_url;
+}
+
+// ── User profile / résumé ─────────────────────────────────────────────────────
+// A user-wide profile (their known tech stack), set once from a résumé. This is
+// a separate lane from /api/chat/upload (per-chat RAG documents).
+
+export interface ProfileResponse {
+  /** Comma-separated technologies the user already knows. Null until a résumé is set. */
+  known_stack: string | null;
+  resume_filename: string | null;
+  updated_at: string | null;
+}
+
+export interface ResumeUploadResponse {
+  known_stack: string;
+  resume_filename: string;
+  updated_at: string;
+}
+
+export interface ClearProfileResponse {
+  status: string;
+  message?: string;
+}
+
+export async function getProfile(): Promise<ProfileResponse> {
+  const res = await fetch(`${API_BASE}/api/profile`, { headers: authHeaders() });
+  return handleResponse<ProfileResponse>(res);
+}
+
+/**
+ * Upload a résumé to derive the user's known stack. The backend runs an LLM
+ * extraction (a few seconds). Throws with the backend's `detail` message on
+ * 422 (not a résumé) or 400 (not a document) so the caller can show it inline.
+ */
+export async function uploadResume(file: File): Promise<ResumeUploadResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(`${API_BASE}/api/profile/resume`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      // No Content-Type — the browser sets the multipart boundary itself.
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    throw new Error(await errorDetail(res, `Upload failed (${res.status}).`));
+  }
+  return res.json() as Promise<ResumeUploadResponse>;
+}
+
+export async function clearProfile(): Promise<ClearProfileResponse> {
+  const res = await fetch(`${API_BASE}/api/profile`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  return handleResponse<ClearProfileResponse>(res);
 }

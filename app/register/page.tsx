@@ -30,19 +30,33 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4">
-      <div className="mb-10 text-center">
-        <h1 className="text-5xl font-bold text-white mb-3">LearnMate</h1>
-        <p className="text-slate-400 text-lg">Create your account.</p>
+    <div
+      className="relative flex min-h-screen flex-col items-center justify-center px-4 overflow-hidden"
+      style={{
+        background:
+          'radial-gradient(80% 50% at 50% -5%, rgba(245, 194, 0, 0.12) 0%, transparent 60%), ' +
+          'radial-gradient(70% 50% at 100% 105%, rgba(245, 158, 11, 0.08) 0%, transparent 60%), ' +
+          'var(--background)',
+      }}
+    >
+      {/* Brand */}
+      <div className="mb-8 flex flex-col items-center text-center">
+        <div
+          className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl text-accent-foreground text-lg font-bold shadow-[var(--elev-3)]"
+          style={{ background: 'var(--gradient-accent)' }}
+        >
+          LM
+        </div>
+        <h1 className="font-display text-5xl text-gradient-brand mb-2">LearnMate</h1>
+        <p className="text-muted-foreground text-base">Create your account.</p>
       </div>
 
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm space-y-4 rounded-2xl border border-slate-800 bg-slate-900/60 backdrop-blur-md p-8 shadow-2xl"
+        className="glass w-full max-w-sm space-y-4 rounded-2xl border border-border/70 p-8 shadow-[var(--elev-3)]"
       >
-        <h2 className="text-xl font-semibold text-white mb-4 text-center">
-          Register
-        </h2>
+        <h2 className="text-lg font-semibold text-foreground mb-1">Get started</h2>
+        <p className="text-sm text-muted-foreground -mt-1 mb-4">It only takes a minute.</p>
 
         {error && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
@@ -51,7 +65,7 @@ export default function RegisterPage() {
         )}
 
         <div>
-          <label htmlFor="fullName" className="mb-1 block text-sm text-slate-300">
+          <label htmlFor="fullName" className="mb-1.5 block text-sm font-medium text-foreground/80">
             Full name
           </label>
           <input
@@ -60,13 +74,13 @@ export default function RegisterPage() {
             autoComplete="name"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
-            className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-blue-500 focus:outline-none"
+            className="w-full rounded-xl border border-border bg-surface-2/60 px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25"
             placeholder="John Doe"
           />
         </div>
 
         <div>
-          <label htmlFor="email" className="mb-1 block text-sm text-slate-300">
+          <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-foreground/80">
             Email
           </label>
           <input
@@ -76,13 +90,13 @@ export default function RegisterPage() {
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-blue-500 focus:outline-none"
+            className="w-full rounded-xl border border-border bg-surface-2/60 px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25"
             placeholder="you@example.com"
           />
         </div>
 
         <div>
-          <label htmlFor="password" className="mb-1 block text-sm text-slate-300">
+          <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-foreground/80">
             Password
           </label>
           <div className="relative">
@@ -93,13 +107,14 @@ export default function RegisterPage() {
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-2.5 pr-10 text-sm text-white placeholder:text-slate-500 focus:border-blue-500 focus:outline-none"
+              className="w-full rounded-xl border border-border bg-surface-2/60 px-3.5 py-2.5 pr-10 text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25"
               placeholder="••••••••"
             />
             <button
               type="button"
               onClick={() => setShowPw(!showPw)}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              aria-label={showPw ? 'Hide password' : 'Show password'}
             >
               {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
@@ -109,15 +124,16 @@ export default function RegisterPage() {
         <button
           type="submit"
           disabled={loading}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500 disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-accent-foreground shadow-[var(--elev-2)] transition hover:opacity-90 disabled:opacity-50"
+          style={{ background: 'var(--gradient-accent)' }}
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
           {loading ? 'Creating account…' : 'Create account'}
         </button>
 
-        <p className="text-center text-sm text-slate-400">
+        <p className="text-center text-sm text-muted-foreground pt-1">
           Already have an account?{' '}
-          <Link href="/login" className="text-blue-400 hover:underline">
+          <Link href="/login" className="text-accent font-medium hover:underline underline-offset-2">
             Sign in
           </Link>
         </p>
