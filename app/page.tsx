@@ -249,7 +249,18 @@ export default function ChatPage() {
       // The assistant bubble is created lazily on the first stream frame so the
       // "typing" loader shows until content actually starts arriving.
       let agentId: string | null = null;
-      let assistantText = '';
+
+      // ── Typewriter reveal ────────────────────────────────────────────────
+      // The backend may deliver the answer in a few large chunks — or entirely
+      // inside the final `done` frame — which makes the reply pop in instead of
+      // type out. We decouple what's *received* (targetText) from what's *shown*
+      // and reveal the gap a little each animation frame, so it always reads as
+      // typing regardless of how coarsely the server chunks the response.
+      let targetText = '';        // full text received so far
+      let shown = 0;              // characters currently revealed
+      let streamEnded = false;    // no more chunks will arrive
+      let raf: number | null = null;
+      let finalPatch: Partial<Message> | null = null; // applied once fully shown
 
       const ensureAgent = () => {
         if (agentId) return;
@@ -265,6 +276,31 @@ export default function ChatPage() {
         );
       };
 
+      const reveal = () => {
+        if (shown < targetText.length) {
+          // Ease-out: cover a fraction of the remaining gap each frame (with a
+          // floor), so big chunks catch up quickly but the tail still types.
+          const remaining = targetText.length - shown;
+          shown = Math.min(targetText.length, shown + Math.max(2, Math.ceil(remaining / 22)));
+          patchAgent({ content: targetText.slice(0, shown), status: 'chatting' });
+          raf = requestAnimationFrame(reveal);
+        } else if (!streamEnded) {
+          // Caught up, but more chunks may still arrive — keep the loop alive.
+          raf = requestAnimationFrame(reveal);
+        } else {
+          // Fully revealed and the stream is closed — commit the final state.
+          raf = null;
+          if (finalPatch) {
+            patchAgent(finalPatch);
+            finalPatch = null;
+          }
+        }
+      };
+
+      const startReveal = () => {
+        if (raf === null) raf = requestAnimationFrame(reveal);
+      };
+
       try {
         await sendMessageStream(sessionId, userMessage, files, {
           onSources: (sources) => {
@@ -273,8 +309,8 @@ export default function ChatPage() {
           },
           onDelta: (fullText) => {
             ensureAgent();
-            assistantText = fullText;
-            patchAgent({ content: fullText, status: 'chatting' });
+            targetText = fullText;
+            startReveal();
           },
           onStatus: () => {
             ensureAgent();
@@ -282,19 +318,24 @@ export default function ChatPage() {
           },
           onDone: (evt) => {
             ensureAgent();
-            patchAgent({
-              content: evt.response || assistantText,
+            targetText = evt.response || targetText;
+            streamEnded = true;
+            finalPatch = {
+              content: targetText,
               status: 'completed',
               notionUrls: evt.notion_urls,
               notionPages: evt.notion_pages,
               sources: evt.sources ?? undefined,
               generatingNotes: false,
-            });
+            };
             finalizeSession(sessionId, userMessage);
+            startReveal(); // finish revealing, then apply finalPatch
           },
           onError: (message) => {
             ensureAgent();
-            patchAgent({ status: 'completed', generatingNotes: false, error: message });
+            streamEnded = true;
+            finalPatch = { status: 'completed', generatingNotes: false, error: message };
+            startReveal();
           },
         });
       } catch (streamError) {
@@ -304,12 +345,15 @@ export default function ChatPage() {
           try {
             const data = await sendMessage(sessionId, userMessage, files);
             ensureAgent();
-            patchAgent({
-              content: data.response,
+            targetText = data.response;
+            streamEnded = true;
+            finalPatch = {
+              content: targetText,
               status: 'completed',
               notionUrls: data.notion_urls,
-            });
+            };
             finalizeSession(sessionId, userMessage);
+            startReveal(); // type the fallback response out too
           } catch (fallbackError) {
             console.error('[API] Fallback send failed', fallbackError);
             ensureAgent();
@@ -317,7 +361,9 @@ export default function ChatPage() {
           }
         } else {
           console.error('[API] Stream interrupted', streamError);
-          patchAgent({ status: 'completed', generatingNotes: false, error: 'The response was interrupted.' });
+          streamEnded = true;
+          finalPatch = { status: 'completed', generatingNotes: false, error: 'The response was interrupted.' };
+          startReveal();
         }
       } finally {
         setIsSending(false);
