@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { uploadFile, getDocumentStatus } from '@/lib/api';
+import { uploadFile, getDocumentStatus, deleteDocument } from '@/lib/api';
 
 /** Terminal + transient states a library item can be in. */
 export type LibraryDocState =
@@ -22,6 +22,8 @@ export interface LibraryDoc {
   state: LibraryDocState;
   chunkCount?: number;
   error?: string;
+  /** True while the DELETE request for this document is in flight. */
+  deleting?: boolean;
 }
 
 const POLL_INTERVAL_MS = 1500;
@@ -34,6 +36,10 @@ const POLL_TIMEOUT_MS = 60_000;
  */
 export function useDocumentLibrary(sessionId: string) {
   const [docs, setDocs] = useState<LibraryDoc[]>([]);
+  // Mirror of `docs` so removeDoc can read the current list (to find a doc's
+  // backend id) without being reallocated on every render.
+  const docsRef = useRef<LibraryDoc[]>(docs);
+  docsRef.current = docs;
   // Active poll timers keyed by client id, so we can cancel on remove/unmount.
   const timersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -154,12 +160,37 @@ export function useDocumentLibrary(sessionId: string) {
     [uploadOne]
   );
 
+  /**
+   * Remove a document from the library. For anything indexed server-side this
+   * issues the DELETE so the document is genuinely un-indexed — otherwise the
+   * chunks stay in Qdrant/Mongo and keep surfacing as retrieval sources.
+   *
+   * Resolves once the row is gone. Rejects (leaving the row in place, so the
+   * user can retry) if the backend refused the delete.
+   */
   const removeDoc = useCallback(
-    (id: string) => {
+    async (id: string) => {
+      const doc = docsRef.current.find((d) => d.id === id);
       clearTimer(id);
-      setDocs((prev) => prev.filter((d) => d.id !== id));
+
+      // Images and failed uploads were never indexed (no backend document id),
+      // so there is nothing to delete — just drop the row.
+      if (!doc?.documentId) {
+        setDocs((prev) => prev.filter((d) => d.id !== id));
+        return;
+      }
+
+      patch(id, { deleting: true });
+      try {
+        // A 404 resolves normally — already gone, so drop the row either way.
+        await deleteDocument(doc.documentId);
+        setDocs((prev) => prev.filter((d) => d.id !== id));
+      } catch (err) {
+        patch(id, { deleting: false }); // keep the row so the user can retry
+        throw err instanceof Error ? err : new Error('Could not delete document.');
+      }
     },
-    [clearTimer]
+    [clearTimer, patch]
   );
 
   return { docs, uploadFiles, removeDoc };

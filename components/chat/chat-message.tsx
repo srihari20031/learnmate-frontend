@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Copy, RefreshCw, Pencil, FileText, Image as ImageIcon, X, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { Message, Attachment, formatTimestamp, friendlyFileType } from '@/lib/chat-utils';
+import { Message, Attachment, Source, formatTimestamp, friendlyFileType } from '@/lib/chat-utils';
 import { NotionCard } from './notion-card';
 
 interface ChatMessageProps {
@@ -112,6 +112,59 @@ function AttachmentPreview({ attachment }: { attachment: Attachment }) {
           {friendlyFileType(attachment.filename, attachment.mime_type, attachment.type)}
         </p>
       </div>
+    </div>
+  );
+}
+
+// A single retrieved source: numbered [id] badge (maps to the inline [n] marker
+// in the answer) + filename + the actual excerpt it's grounded in. Long snippets
+// collapse to two lines with a Show more toggle.
+function SourceCard({ source }: { source: Source }) {
+  const [expanded, setExpanded] = useState(false);
+  const snippet = source.snippet?.trim();
+
+  return (
+    <div
+      className={`rounded-lg border px-2.5 py-2 transition-colors ${
+        source.cited
+          ? 'border-accent/40 bg-accent/5'
+          : 'border-border/70 bg-surface-1/50'
+      }`}
+    >
+      <div className="flex items-center gap-1.5">
+        <span
+          className={`inline-flex h-4 min-w-4 items-center justify-center rounded px-1 text-[10px] font-semibold ${
+            source.cited ? 'bg-accent/20 text-accent' : 'bg-surface-2 text-muted-foreground'
+          }`}
+        >
+          {source.id}
+        </span>
+        <FileText className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span className="truncate text-[11px] font-medium text-foreground/90">
+          {source.filename}
+        </span>
+      </div>
+
+      {snippet && (
+        <>
+          <p
+            className={`mt-1 text-[11px] italic leading-relaxed text-muted-foreground ${
+              expanded ? '' : 'line-clamp-2'
+            }`}
+          >
+            &ldquo;{snippet}&rdquo;
+          </p>
+          {snippet.length > 120 && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="mt-1 text-[10px] font-medium text-accent hover:underline"
+            >
+              {expanded ? 'Show less' : 'Show more'}
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -229,23 +282,18 @@ export function ChatMessage({ message, index }: ChatMessageProps) {
               )}
             </div>
 
-            {/* Citation chips — retrieved sources backing the answer */}
+            {/* Citations — retrieved sources backing the answer. Each card shows
+                its [id] (matching the inline marker) and the grounding excerpt. */}
             {message.sources && message.sources.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {message.sources.map((source) => (
-                  <span
-                    key={source.id}
-                    title={source.snippet}
-                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
-                      source.cited
-                        ? 'border-accent/50 bg-accent/10 text-accent'
-                        : 'border-border text-muted-foreground'
-                    }`}
-                  >
-                    <FileText className="h-3 w-3" aria-hidden="true" />
-                    {source.filename}
-                  </span>
-                ))}
+              <div className="mt-3">
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Sources
+                </p>
+                <div className="space-y-1.5">
+                  {message.sources.map((source, i) => (
+                    <SourceCard key={source.chunk_id || `${source.id}-${i}`} source={source} />
+                  ))}
+                </div>
               </div>
             )}
 

@@ -5,7 +5,14 @@ import { useRouter } from 'next/navigation';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ChatWindow } from '@/components/chat/chat-window';
 import { Sidebar } from '@/components/chat/sidebar';
-import { LogOut } from 'lucide-react';
+import { LogOut, ChevronDown } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import {
   createMessage,
   truncateTitle,
@@ -485,25 +492,42 @@ export default function ChatPage() {
             </svg>
           </button>
 
-          <div className="flex items-center gap-2">
-            <div className="text-right hidden sm:block leading-tight mr-1">
-              {userName && <p className="text-sm font-medium text-foreground">{userName}</p>}
-              <p className="text-xs text-muted-foreground">{userEmail}</p>
-            </div>
-            <div
-              className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold text-accent-foreground shadow-[var(--elev-1)]"
-              style={{ background: 'var(--gradient-accent)' }}
-            >
-              {(userName || userEmail).charAt(0).toUpperCase()}
-            </div>
-            <button
-              onClick={handleLogout}
-              className="p-2 rounded-lg hover:bg-surface-2 text-muted-foreground hover:text-red-400 transition-colors"
-              aria-label="Sign out"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
+          {/* Account menu — avatar + name open a dropdown with a clear Sign out */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2 hover:bg-surface-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                aria-label="Account menu"
+              >
+                <div
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold text-accent-foreground shadow-[var(--elev-1)]"
+                  style={{ background: 'var(--gradient-accent)' }}
+                >
+                  {(userName || userEmail).charAt(0).toUpperCase()}
+                </div>
+                <span className="hidden sm:block max-w-[10rem] truncate text-sm font-medium text-foreground">
+                  {userName || userEmail}
+                </span>
+                <ChevronDown className="hidden sm:block h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <div className="px-2 py-1.5">
+                {userName && (
+                  <p className="truncate text-sm font-medium text-foreground">{userName}</p>
+                )}
+                <p className="truncate text-xs text-muted-foreground">{userEmail}</p>
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={handleLogout}
+                className="text-red-400 focus:text-red-400 focus:bg-red-500/10 cursor-pointer"
+              >
+                <LogOut className="mr-2 h-4 w-4" aria-hidden="true" />
+                Sign out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <ChatWindow

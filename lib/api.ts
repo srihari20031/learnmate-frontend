@@ -192,6 +192,35 @@ export async function getDocumentStatus(
   return handleResponse<DocumentStatusResponse>(res);
 }
 
+export interface DeleteDocumentResponse {
+  deleted: boolean;
+  filename?: string;
+  chunks?: number;
+}
+
+/**
+ * Permanently un-index a document — removes its Qdrant vectors, Mongo chunks and
+ * metadata. Auth-scoped to the caller's own documents.
+ *
+ * A 404 means the document is already gone, which is not an error from the UI's
+ * point of view: the caller should drop the row either way. Any other non-2xx
+ * throws with the backend's `detail` message so it can be surfaced inline.
+ */
+export async function deleteDocument(
+  documentId: string
+): Promise<DeleteDocumentResponse> {
+  const res = await fetch(
+    `${API_BASE}/api/documents/${encodeURIComponent(documentId)}`,
+    { method: 'DELETE', headers: authHeaders() }
+  );
+
+  if (res.status === 404) return { deleted: false }; // already gone — treat as success
+  if (!res.ok) {
+    throw new Error(await errorDetail(res, `Could not delete document (${res.status}).`));
+  }
+  return res.json() as Promise<DeleteDocumentResponse>;
+}
+
 // ── Learn flow ───────────────────────────────────────────────────────────────
 
 export interface LearnMessageResponse {

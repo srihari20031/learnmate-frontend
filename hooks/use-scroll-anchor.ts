@@ -14,7 +14,14 @@ export function useScrollAnchor(): UseScrollAnchorReturn {
   const [isScrolledUp, setIsScrolledUp] = useState(false);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
-    messagesEndRef.current?.scrollIntoView({ behavior });
+    // Scroll ONLY the messages container. Using messagesEndRef.scrollIntoView()
+    // walks up and scrolls every ancestor scroll box — including the outer
+    // overflow-hidden columns that hold the header — which pushes the header
+    // off-screen with no way for the user to scroll it back. Setting scrollTop
+    // on the container itself keeps the scroll strictly inside the thread.
+    const container = containerRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior });
   }, []);
 
   useEffect(() => {

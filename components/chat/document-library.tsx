@@ -10,6 +10,17 @@ import {
   X,
   AlertTriangle,
 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from '@/components/ui/alert-dialog';
 import { useDocumentLibrary, LibraryDoc } from '@/hooks/use-document-library';
 
 interface DocumentLibraryProps {
@@ -67,6 +78,60 @@ function DocStatus({ doc }: { doc: LibraryDoc }) {
   }
 }
 
+/**
+ * The row's remove control. For an indexed document this is destructive and
+ * irreversible (the chunks are purged from the vector store), so it is gated
+ * behind a confirmation. Images were never indexed — removing them is just a
+ * UI action, so they delete straight away.
+ */
+function RemoveButton({ doc, onRemove }: { doc: LibraryDoc; onRemove: () => void }) {
+  const isIndexed = !!doc.documentId;
+
+  const button = (
+    <button
+      type="button"
+      disabled={doc.deleting}
+      aria-label={`Remove ${doc.filename}`}
+      onClick={isIndexed ? undefined : onRemove}
+      className={`shrink-0 rounded p-0.5 text-muted-foreground transition-opacity hover:text-red-400 disabled:cursor-not-allowed ${
+        doc.deleting ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+      }`}
+    >
+      {doc.deleting ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+      ) : (
+        <X className="h-3.5 w-3.5" aria-hidden="true" />
+      )}
+    </button>
+  );
+
+  if (!isIndexed) return button;
+
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>{button}</AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove &ldquo;{doc.filename}&rdquo;?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This permanently un-indexes the document — the assistant will no longer be
+            able to cite it in any answer. To restore it you would have to upload it again.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={onRemove}
+            className="bg-red-500 text-white hover:bg-red-600"
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export function DocumentLibrary({ sessionId }: DocumentLibraryProps) {
   const { docs, uploadFiles, removeDoc } = useDocumentLibrary(sessionId);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -89,6 +154,16 @@ export function DocumentLibrary({ sessionId }: DocumentLibraryProps) {
     }
 
     uploadFiles(files);
+  };
+
+  // Delete failures keep the row in place; surface why in the inline alert.
+  const handleRemove = async (doc: LibraryDoc) => {
+    setError(null);
+    try {
+      await removeDoc(doc.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Could not delete ${doc.filename}.`);
+    }
   };
 
   return (
@@ -141,14 +216,7 @@ export function DocumentLibrary({ sessionId }: DocumentLibraryProps) {
                 </p>
                 <DocStatus doc={doc} />
               </div>
-              <button
-                type="button"
-                onClick={() => removeDoc(doc.id)}
-                aria-label={`Remove ${doc.filename}`}
-                className="flex-shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
-              >
-                <X className="h-3.5 w-3.5" aria-hidden="true" />
-              </button>
+              <RemoveButton doc={doc} onRemove={() => void handleRemove(doc)} />
             </li>
           ))}
         </ul>

@@ -34,6 +34,13 @@ export function ChatWindow({
   const prevMessagesLengthRef = useRef(messages.length);
   const [hasNewMessages, setHasNewMessages] = useState(false);
 
+  // The streaming typewriter grows the *content* of the last assistant message
+  // without adding a new one, so the message-count effect below never sees it.
+  // Track the last assistant message's length to follow the text as it types.
+  const lastMessage = messages[messages.length - 1];
+  const followContentLen =
+    lastMessage?.role === 'agent' ? lastMessage.content.length : -1;
+
   useEffect(() => {
     if (messages.length > prevMessagesLengthRef.current) {
       if (isScrolledUp) {
@@ -56,6 +63,17 @@ export function ChatWindow({
     }
   }, [isLoading, isScrolledUp, scrollToBottom]);
 
+  // Follow the streaming text: as the typewriter grows the assistant message,
+  // keep the viewport pinned to the bottom — unless the user has scrolled up to
+  // read earlier content. Uses 'auto' (instant) so each frame sticks cleanly
+  // instead of queuing laggy smooth-scroll animations.
+  useEffect(() => {
+    if (followContentLen < 0) return; // last turn isn't an assistant message
+    if (!isScrolledUp) {
+      scrollToBottom('auto');
+    }
+  }, [followContentLen, isScrolledUp, scrollToBottom]);
+
   // Dismiss pill when user scrolls back to bottom
   useEffect(() => {
     if (!isScrolledUp) {
@@ -71,7 +89,9 @@ export function ChatWindow({
   };
 
   return (
-    <div className="flex flex-col h-full">
+    // flex-1 + min-h-0 so this fills the space left by the header (not 100% of
+    // the column, which would overflow and clip the input bar at the bottom).
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Messages Thread Container */}
       <div
         ref={containerRef}
