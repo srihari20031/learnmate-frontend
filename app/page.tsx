@@ -20,6 +20,7 @@ import {
   Message,
   ChatSession,
   Attachment,
+  NotionPage,
 } from '@/lib/chat-utils';
 import {
   createChat,
@@ -27,6 +28,7 @@ import {
   getMessages,
   sendMessage,
   sendMessageStream,
+  getNotesStatus,
   resetChat,
   logout,
   getCurrentUser,
@@ -88,6 +90,26 @@ const toMessage = (message: ChatMessageResponse, index: number): Message => {
 const toMessages = (messages: ChatMessageResponse[]): Message[] =>
   messages.map((message, index) => toMessage(message, index));
 
+/**
+ * Merge incrementally-arriving Notion pages into the already-shown list, keeping
+ * insertion order and de-duping by url so a note that appeared in an earlier poll
+ * isn't rendered twice. Robust whether the backend returns the full accumulated
+ * set each poll or only the newly-added pages.
+ */
+const mergeNotionPages = (
+  existing: NotionPage[] | undefined,
+  incoming: NotionPage[] | undefined
+): NotionPage[] => {
+  const seen = new Set<string>();
+  const merged: NotionPage[] = [];
+  for (const page of [...(existing ?? []), ...(incoming ?? [])]) {
+    if (!page?.url || seen.has(page.url)) continue;
+    seen.add(page.url);
+    merged.push(page);
+  }
+  return merged;
+};
+
 export default function ChatPage() {
   const router = useRouter();
   const isMobile = useIsMobile();
@@ -98,7 +120,12 @@ export default function ChatPage() {
 
   const [activeSessionId, setActiveSessionId] = useState<string>('');
   const [messages, setMessages] = useState<Message[]>([]);
+  // `isSending` = a turn is in flight (send → done): keeps the input disabled.
+  // `isThinking` = waiting for the FIRST delta (send → first token): drives the
+  // "Thinking…" indicator. Split so web-search turns, which pause a few seconds
+  // before streaming, keep the indicator up until real text starts arriving.
   const [isSending, setIsSending] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
   // True while a session's history is being fetched — prevents the empty
   // state from flashing during the async gap when switching chats.
   const [isLoadingMessages, setIsLoadingMessages] = useState(true);
@@ -244,6 +271,105 @@ export default function ChatPage() {
     []
   );
 
+  // Patch a single message by id (used by the async notes poller, which resolves
+  // outside the send handler's local closure).
+  const patchMessageById = useCallback((id: string, patch: Partial<Message>) => {
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+  }, []);
+
+  // ── Async note-generation polling ───────────────────────────────────────────
+  // A turn that returns status "generating_notes" kicks off note creation in the
+  // background. We poll /api/learn/notes-status every 2s (max ~2 min) until it
+  // resolves, then drop the saved pages onto the message. Polls are keyed by the
+  // assistant message id and torn down on session switch / unmount.
+  const NOTES_POLL_INTERVAL_MS = 2000;
+  const NOTES_POLL_TIMEOUT_MS = 120_000;
+  const notesPollsRef = useRef<Record<string, { timer: ReturnType<typeof setTimeout> }>>({});
+
+  const stopNotesPoll = useCallback((messageId: string) => {
+    const poll = notesPollsRef.current[messageId];
+    if (poll) {
+      clearTimeout(poll.timer);
+      delete notesPollsRef.current[messageId];
+    }
+  }, []);
+
+  const startNotesPoll = useCallback(
+    (sessionId: string, messageId: string) => {
+      stopNotesPoll(messageId); // never run two polls for the same message
+      const startedAt = Date.now();
+
+      const tick = async () => {
+        let resolved = false;
+        try {
+          const s = await getNotesStatus(sessionId);
+          // Bail if the poll was cancelled (navigation) while the request was in flight.
+          if (!notesPollsRef.current[messageId]) return;
+
+          if (s.status === 'failed') {
+            patchMessageById(messageId, { notesStatus: 'failed' });
+            resolved = true;
+          } else {
+            // Notes arrive incrementally: on EVERY poll (generating or completed)
+            // merge the pages we've received so far, deduped by url, so the live
+            // list grows as new notes land instead of appearing only at the end.
+            const completed = s.status === 'completed';
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === messageId
+                  ? {
+                      ...m,
+                      notionPages: mergeNotionPages(m.notionPages, s.notion_pages),
+                      notesStatus: completed ? 'completed' : 'generating',
+                    }
+                  : m
+              )
+            );
+            if (completed) resolved = true; // all notes are in — stop the poll
+          }
+        } catch {
+          // Transient error — keep polling until the timeout below.
+        }
+
+        if (resolved) {
+          stopNotesPoll(messageId);
+          return;
+        }
+        if (Date.now() - startedAt > NOTES_POLL_TIMEOUT_MS) {
+          patchMessageById(messageId, { notesStatus: 'failed' });
+          stopNotesPoll(messageId);
+          return;
+        }
+        if (notesPollsRef.current[messageId]) {
+          notesPollsRef.current[messageId].timer = setTimeout(tick, NOTES_POLL_INTERVAL_MS);
+        }
+      };
+
+      notesPollsRef.current[messageId] = { timer: setTimeout(tick, NOTES_POLL_INTERVAL_MS) };
+    },
+    [stopNotesPoll, patchMessageById]
+  );
+
+  // Retry a failed / timed-out notes job: re-enter the generating state and poll again.
+  const handleRetryNotes = useCallback(
+    (messageId: string) => {
+      if (!activeSessionId) return;
+      patchMessageById(messageId, { notesStatus: 'generating' });
+      startNotesPoll(activeSessionId, messageId);
+    },
+    [activeSessionId, patchMessageById, startNotesPoll]
+  );
+
+  // Stop every in-flight notes poll when leaving the chat (session switch) or on
+  // unmount — each poll is tied to the session it started in.
+  useEffect(() => {
+    const polls = notesPollsRef.current;
+    return () => {
+      Object.values(polls).forEach((p) => clearTimeout(p.timer));
+      notesPollsRef.current = {};
+    };
+  }, [activeSessionId]);
+
   const handleSendMessage = useCallback(
     async (userMessage: string, files?: File[]) => {
       if (!userMessage.trim() || !activeSessionId) return;
@@ -252,6 +378,7 @@ export default function ChatPage() {
       const userMsg = createMessage(userMessage, 'user', undefined, undefined, undefined);
       setMessages((prev) => [...prev, userMsg]);
       setIsSending(true);
+      setIsThinking(true);
 
       // The assistant bubble is created lazily on the first stream frame so the
       // "typing" loader shows until content actually starts arriving.
@@ -268,13 +395,20 @@ export default function ChatPage() {
       let streamEnded = false;    // no more chunks will arrive
       let raf: number | null = null;
       let finalPatch: Partial<Message> | null = null; // applied once fully shown
+      // Sources arrive before the first delta. We hold them until the assistant
+      // bubble is actually created (on first delta / done) so the "Thinking…"
+      // indicator isn't replaced by an empty bubble during the pre-stream pause.
+      let pendingSources: Message['sources'];
 
       const ensureAgent = () => {
         if (agentId) return;
         const agentMsg = createMessage('', 'agent', 'chatting');
         agentId = agentMsg.id;
         setMessages((prev) => [...prev, agentMsg]);
-        setIsSending(false);
+        if (pendingSources && pendingSources.length) {
+          patchAgent({ sources: pendingSources });
+          pendingSources = undefined;
+        }
       };
 
       const patchAgent = (patch: Partial<Message>) => {
@@ -311,37 +445,55 @@ export default function ChatPage() {
       try {
         await sendMessageStream(sessionId, userMessage, files, {
           onSources: (sources) => {
-            ensureAgent();
-            patchAgent({ sources });
+            // Don't create the bubble yet — stash until the first delta so the
+            // "Thinking…" indicator stays up through the pre-stream pause.
+            if (agentId) patchAgent({ sources });
+            else pendingSources = sources;
           },
           onDelta: (fullText) => {
+            setIsThinking(false); // first token arrived — swap indicator for text
             ensureAgent();
             targetText = fullText;
             startReveal();
           },
           onStatus: () => {
             ensureAgent();
-            patchAgent({ generatingNotes: true });
+            patchAgent({ notesStatus: 'generating' });
           },
           onDone: (evt) => {
+            setIsThinking(false); // safety: a turn that produced no delta
             ensureAgent();
             targetText = evt.response || targetText;
             streamEnded = true;
-            finalPatch = {
-              content: targetText,
-              status: 'completed',
-              notionUrls: evt.notion_urls,
-              notionPages: evt.notion_pages,
-              sources: evt.sources ?? undefined,
-              generatingNotes: false,
-            };
+
+            // A turn that returns status "generating_notes" produces its notes in
+            // the background. Show the reply now, keep the generating indicator up,
+            // and let the poller fill in notionPages — so DON'T stamp the (empty)
+            // notion_pages from this event over what the poll will deliver.
+            const notesGenerating = evt.status === 'generating_notes';
+            finalPatch = notesGenerating
+              ? {
+                  content: targetText,
+                  status: 'completed',
+                  sources: evt.sources ?? undefined,
+                  notesStatus: 'generating',
+                }
+              : {
+                  content: targetText,
+                  status: 'completed',
+                  notionUrls: evt.notion_urls,
+                  notionPages: evt.notion_pages,
+                  sources: evt.sources ?? undefined,
+                  notesStatus: undefined,
+                };
             finalizeSession(sessionId, userMessage);
             startReveal(); // finish revealing, then apply finalPatch
+            if (notesGenerating && agentId) startNotesPoll(sessionId, agentId);
           },
           onError: (message) => {
             ensureAgent();
             streamEnded = true;
-            finalPatch = { status: 'completed', generatingNotes: false, error: message };
+            finalPatch = { status: 'completed', notesStatus: undefined, error: message };
             startReveal();
           },
         });
@@ -354,13 +506,13 @@ export default function ChatPage() {
             ensureAgent();
             targetText = data.response;
             streamEnded = true;
-            finalPatch = {
-              content: targetText,
-              status: 'completed',
-              notionUrls: data.notion_urls,
-            };
+            const notesGenerating = data.status === 'generating_notes';
+            finalPatch = notesGenerating
+              ? { content: targetText, status: 'completed', notesStatus: 'generating' }
+              : { content: targetText, status: 'completed', notionUrls: data.notion_urls };
             finalizeSession(sessionId, userMessage);
             startReveal(); // type the fallback response out too
+            if (notesGenerating && agentId) startNotesPoll(sessionId, agentId);
           } catch (fallbackError) {
             console.error('[API] Fallback send failed', fallbackError);
             ensureAgent();
@@ -369,14 +521,17 @@ export default function ChatPage() {
         } else {
           console.error('[API] Stream interrupted', streamError);
           streamEnded = true;
-          finalPatch = { status: 'completed', generatingNotes: false, error: 'The response was interrupted.' };
+          finalPatch = { status: 'completed', notesStatus: undefined, error: 'The response was interrupted.' };
           startReveal();
         }
       } finally {
+        // Turn is over (done / error / fallback) — re-enable input and make sure
+        // the thinking indicator is cleared even on paths that produced no delta.
         setIsSending(false);
+        setIsThinking(false);
       }
     },
-    [activeSessionId, finalizeSession]
+    [activeSessionId, finalizeSession, startNotesPoll]
   );
 
   const handleNewChat = useCallback(async () => {
@@ -449,13 +604,7 @@ export default function ChatPage() {
   return (
     <div
       className="flex h-screen overflow-hidden"
-      style={{
-        background:
-          'radial-gradient(85% 55% at 50% -8%, rgba(245, 194, 0, 0.10) 0%, transparent 60%), ' +
-          'radial-gradient(70% 55% at 100% 105%, rgba(245, 158, 11, 0.08) 0%, transparent 60%), ' +
-          'radial-gradient(60% 45% at 20% 110%, rgba(245, 194, 0, 0.05) 0%, transparent 60%), ' +
-          'var(--background)',
-      }}
+      style={{ background: 'var(--background)' }}
     >
       {isMobile && sidebarOpen && (
         <div
@@ -532,10 +681,12 @@ export default function ChatPage() {
 
         <ChatWindow
           messages={messages}
-          isLoading={isSending}
+          isLoading={isThinking}
+          inputDisabled={isSending}
           isLoadingHistory={isLoadingMessages}
           onSendMessage={handleSendMessage}
           onSuggestionClick={handleSendMessage}
+          onRetryNotes={handleRetryNotes}
         />
       </div>
     </div>

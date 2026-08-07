@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL;
+import { apiBase } from '@/lib/api';
 
 function getAuthHeaders(): Record<string, string> {
   try {
@@ -52,7 +52,7 @@ function NotionCallbackInner() {
       if (!exchangeDone) {
         exchangeDone = true;
         try {
-          const exchangeRes = await fetch(`${API_BASE}/api/notion/callback`, {
+          const exchangeRes = await fetch(`${apiBase()}/api/notion/callback`, {
             method: 'POST',
             headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
             body: JSON.stringify({ code, state }),
@@ -65,7 +65,7 @@ function NotionCallbackInner() {
       }
 
       try {
-        const statusRes = await fetch(`${API_BASE}/api/notion/status`, {
+        const statusRes = await fetch(`${apiBase()}/api/notion/status`, {
           headers: getAuthHeaders(),
         });
         const statusText = await statusRes.text();

@@ -33,18 +33,23 @@ export function NotionCard({ url, title }: NotionCardProps) {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="block w-full px-4 py-3 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/30 rounded-lg hover:from-amber-500/20 hover:to-orange-500/20 hover:border-amber-500/50 transition-all duration-300 group hover:shadow-lg hover:shadow-amber-500/10"
+      className="block w-full px-4 py-3 rounded-lg border border-border/70 bg-surface-1/50 hover:bg-surface-2 hover:border-accent/45 transition-colors group"
     >
       <div className="flex items-center gap-3">
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-amber-300 group-hover:text-amber-200 transition-colors">
+          <p className="text-sm font-semibold text-foreground/95 group-hover:text-accent transition-colors">
             {pageTitle}
           </p>
-          <p className="text-xs text-amber-400/60 truncate">
+          <p className="text-xs text-muted-foreground truncate">
             {url}
           </p>
         </div>
-        <ExternalLink className="w-4 h-4 text-amber-400 flex-shrink-0 group-hover:text-amber-300 transition-colors" />
+        {/* Amber spark — the brand's warm accent, kept small on a teal card. */}
+        <ExternalLink
+          className="w-4 h-4 shrink-0"
+          style={{ color: 'var(--accent-2)' }}
+          aria-hidden="true"
+        />
       </div>
     </a>
   );

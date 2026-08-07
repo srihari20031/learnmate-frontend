@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { register } from '@/lib/api';
 import { Eye, EyeOff, Loader2, UserPlus } from 'lucide-react';
+import { BrandLogo } from '@/components/chat/brand-logo';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -32,21 +33,11 @@ export default function RegisterPage() {
   return (
     <div
       className="relative flex min-h-screen flex-col items-center justify-center px-4 overflow-hidden"
-      style={{
-        background:
-          'radial-gradient(80% 50% at 50% -5%, rgba(245, 194, 0, 0.12) 0%, transparent 60%), ' +
-          'radial-gradient(70% 50% at 100% 105%, rgba(245, 158, 11, 0.08) 0%, transparent 60%), ' +
-          'var(--background)',
-      }}
+      style={{ background: 'var(--background)' }}
     >
       {/* Brand */}
       <div className="mb-8 flex flex-col items-center text-center">
-        <div
-          className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl text-accent-foreground text-lg font-bold shadow-[var(--elev-3)]"
-          style={{ background: 'var(--gradient-accent)' }}
-        >
-          LM
-        </div>
+        <BrandLogo className="mb-5 h-14 w-14 rounded-2xl shadow-[var(--elev-3)]" />
         <h1 className="font-display text-5xl text-gradient-brand mb-2">LearnMate</h1>
         <p className="text-muted-foreground text-base">Create your account.</p>
       </div>

@@ -34,8 +34,13 @@ export interface Message {
   attachments?: Attachment[];
   /** Citation chips streamed alongside the assistant reply. */
   sources?: Source[];
-  /** True while the backend is generating Notion notes (post-answer step). */
-  generatingNotes?: boolean;
+  /**
+   * State of the async Notion note-generation kicked off by this turn. Set to
+   * 'generating' when the turn returns status "generating_notes"; the frontend
+   * then polls /api/learn/notes-status until 'completed' (pages land in
+   * `notionPages`) or 'failed'. Undefined for turns that don't generate notes.
+   */
+  notesStatus?: 'generating' | 'completed' | 'failed';
   /** Set when the stream reports an error frame or is interrupted. */
   error?: string;
 }

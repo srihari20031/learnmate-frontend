@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { SuggestionChip } from './suggestion-chip';
+import { BrandLogo } from './brand-logo';
 import { getProfile } from '@/lib/api';
 
 interface EmptyStateProps {
@@ -71,12 +72,7 @@ export function EmptyState({ onSuggestionClick }: EmptyStateProps) {
 
       <div className="max-w-md relative z-10 animate-fade-in flex flex-col items-center">
         {/* Logo */}
-        <div
-          className="mb-7 inline-flex items-center justify-center w-16 h-16 rounded-2xl text-accent-foreground text-xl font-bold shadow-[var(--elev-3)] animate-float"
-          style={{ background: 'var(--gradient-accent)' }}
-        >
-          LM
-        </div>
+        <BrandLogo className="mb-7 w-16 h-16 rounded-2xl shadow-[var(--elev-3)] animate-float" />
 
         <h1 className="font-display text-5xl mb-4 text-gradient-brand">
           LearnMate

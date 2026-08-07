@@ -7,6 +7,7 @@ import { useFocusTrap } from '@/hooks/use-focus-trap';
 import { NotionSettings } from './notion-settings';
 import { DocumentLibrary } from './document-library';
 import { MyProfile } from './my-profile';
+import { BrandLogo } from './brand-logo';
 import { ChatSession, groupLabelForDate } from '@/lib/chat-utils';
 
 interface SidebarProps {
@@ -86,13 +87,7 @@ export function Sidebar({
       {/* Brand header — wordmark + collapse toggle */}
       <div className="px-3 py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2 pl-1">
-          <div
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-[11px] font-bold text-accent-foreground shadow-[var(--elev-1)]"
-            style={{ background: 'var(--gradient-accent)' }}
-            aria-hidden="true"
-          >
-            LM
-          </div>
+          <BrandLogo className="h-7 w-7 rounded-lg shadow-[var(--elev-1)]" />
           <span className="font-display text-lg leading-none text-gradient-brand">
             LearnMate
           </span>

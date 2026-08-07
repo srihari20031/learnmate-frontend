@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { DM_Serif_Display, Plus_Jakarta_Sans, JetBrains_Mono } from 'next/font/google';
+import { DM_Serif_Display, Manrope, JetBrains_Mono } from 'next/font/google';
 import { Analytics } from '@vercel/analytics/next';
 import { ThemeProvider } from '@/components/theme-provider';
 import './globals.css';
@@ -11,10 +11,11 @@ const displayFont = DM_Serif_Display({
   variable: '--font-dm-serif-display',
 });
 
-const bodyFont = Plus_Jakarta_Sans({
+// App-wide body/UI font.
+const bodyFont = Manrope({
   subsets: ['latin'],
   display: 'swap',
-  variable: '--font-plus-jakarta-sans',
+  variable: '--font-app-sans',
 });
 
 const monoFont = JetBrains_Mono({
@@ -35,21 +36,8 @@ export const metadata: Metadata = {
   description: 'Learn any technology through conversation. Get structured notes in Notion.',
   generator: 'v0.app',
   icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
+    // Single self-contained brand SVG — sharp at every size, works on light/dark.
+    icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
   },
 };
 

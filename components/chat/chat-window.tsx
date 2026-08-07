@@ -13,19 +13,26 @@ import { NewMessagesPill } from './new-messages-pill';
 
 interface ChatWindowProps {
   messages: Message[];
+  /** True from send until the first token — drives the "Thinking…" indicator. */
   isLoading: boolean;
+  /** True for the whole turn (send → done) — keeps the input disabled. */
+  inputDisabled?: boolean;
   /** True while a session's history is being fetched (chat switch / first load). */
   isLoadingHistory?: boolean;
   onSendMessage: (message: string, files?: File[]) => void;
   onSuggestionClick: (suggestion: string) => void;
+  /** Retry a failed async note-generation job for a given assistant message. */
+  onRetryNotes?: (messageId: string) => void;
 }
 
 export function ChatWindow({
   messages,
   isLoading,
+  inputDisabled = false,
   isLoadingHistory = false,
   onSendMessage,
   onSuggestionClick,
+  onRetryNotes,
 }: ChatWindowProps) {
   const reducedMotion = useReducedMotion() ?? false;
   const { messagesEndRef, containerRef, isScrolledUp, scrollToBottom } = useScrollAnchor();
@@ -108,7 +115,7 @@ export function ChatWindow({
             <>
               <AnimatePresence mode="popLayout">
                 {messages.map((msg) => (
-                  <ChatMessage key={msg.id} message={msg} />
+                  <ChatMessage key={msg.id} message={msg} onRetryNotes={onRetryNotes} />
                 ))}
               </AnimatePresence>
 
@@ -126,8 +133,9 @@ export function ChatWindow({
                       LearnMate
                     </span>
                   </div>
-                  <div className="pl-8">
+                  <div className="flex items-center gap-2 pl-8">
                     <LoadingIndicator />
+                    <span className="text-xs text-muted-foreground">Thinking…</span>
                   </div>
                 </div>
               )}
@@ -147,7 +155,7 @@ export function ChatWindow({
 
       <InputBar
         onSend={onSendMessage}
-        disabled={isLoading}
+        disabled={inputDisabled}
       />
     </div>
   );

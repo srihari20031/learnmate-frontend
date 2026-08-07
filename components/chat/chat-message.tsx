@@ -10,11 +10,27 @@ import { NotionCard } from './notion-card';
 interface ChatMessageProps {
   message: Message;
   index?: number; // used for stagger delay
+  /** Retry a failed async note-generation job for this message. */
+  onRetryNotes?: (messageId: string) => void;
 }
 
 // Pure stagger delay function (extract as named export for tests later)
 export const staggerDelay = (index: number): number =>
   Math.min(index, 8) * 0.06;
+
+// Turn bare http(s) URLs (e.g. the plain-text "Sources: https://…" line web
+// answers append) into markdown links, so ReactMarkdown renders them as clickable
+// anchors — react-markdown does NOT autolink without remark-gfm. Only URLs at a
+// start/whitespace boundary are linkified, so URLs already inside a markdown link
+// `](…)`, an autolink `<…>`, or an inline-code span are left untouched. Trailing
+// sentence punctuation (.,;:!?) is excluded from the link.
+function linkifyBareUrls(text: string): string {
+  if (!text) return text;
+  return text.replace(
+    /(^|[\s>])(https?:\/\/[^\s<>()]*[^\s<>().,;:!?'"`])/g,
+    (_match, pre: string, url: string) => `${pre}[${url}](${url})`
+  );
+}
 
 // Animation variants for entrance/exit
 const messageVariants = {
@@ -169,7 +185,7 @@ function SourceCard({ source }: { source: Source }) {
   );
 }
 
-export function ChatMessage({ message, index }: ChatMessageProps) {
+export function ChatMessage({ message, index, onRetryNotes }: ChatMessageProps) {
   const reducedMotion = useReducedMotion();
   const isUser = message.role === 'user';
   const isChatting = message.status === 'chatting';
@@ -257,7 +273,7 @@ export function ChatMessage({ message, index }: ChatMessageProps) {
                     <h3 className="text-[15px] font-bold mb-2 mt-1 text-foreground">{children}</h3>
                   ),
                   a: ({ children, href }) => (
-                    <a href={href} target="_blank" rel="noreferrer" className="text-accent underline underline-offset-2 hover:opacity-80">
+                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent underline underline-offset-2 hover:opacity-80">
                       {children}
                     </a>
                   ),
@@ -268,7 +284,7 @@ export function ChatMessage({ message, index }: ChatMessageProps) {
                   ),
                 }}
               >
-                {message.content}
+                {linkifyBareUrls(message.content)}
               </ReactMarkdown>
               {/* Streaming cursor */}
               {isChatting && (
@@ -297,11 +313,27 @@ export function ChatMessage({ message, index }: ChatMessageProps) {
               </div>
             )}
 
-            {/* Post-answer notes generation indicator */}
-            {message.generatingNotes && (
+            {/* Async note generation. Notes stream in incrementally: the pages
+                themselves render in the Notion section below as they arrive, so
+                this top indicator only covers the initial wait before the first
+                note lands. Once pages exist, the "Generating more…" spinner lives
+                at the bottom of that list instead. */}
+            {message.notesStatus === 'generating' && notionPages.length === 0 && (
               <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                Generating your notes…
+                📝 Generating your notes…
+              </div>
+            )}
+            {message.notesStatus === 'failed' && (
+              <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-red-500/30 bg-red-500/5 px-3 py-1.5 text-xs font-medium text-red-400">
+                Couldn&apos;t generate notes —
+                <button
+                  type="button"
+                  onClick={() => onRetryNotes?.(message.id)}
+                  className="underline underline-offset-2 hover:opacity-80"
+                >
+                  try again
+                </button>
               </div>
             )}
 
@@ -327,6 +359,13 @@ export function ChatMessage({ message, index }: ChatMessageProps) {
                     <NotionCard key={`${page.url}-${index}`} url={page.url} title={page.title} />
                   ))}
                 </div>
+                {/* More notes are still on the way — pages keep appending above. */}
+                {message.notesStatus === 'generating' && (
+                  <div className="mt-2 inline-flex items-center gap-2 text-xs font-medium text-accent">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    Generating more…
+                  </div>
+                )}
               </div>
             )}
 

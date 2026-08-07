@@ -76,12 +76,31 @@ async function errorDetail(res: Response, fallback: string): Promise<string> {
 
 export type { LoginResponse, RegisterResponse };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL;
+/**
+ * The backend origin, e.g. `https://api.example.com`.
+ *
+ * `NEXT_PUBLIC_*` values are inlined into the bundle at BUILD time, not read at
+ * runtime. When the variable is missing at build time the old code interpolated
+ * the literal string `undefined`, producing requests to `undefined/api/auth/token`
+ * that resolve against the frontend's own origin and 404. Fail loudly instead —
+ * and tolerate a trailing slash on the configured value.
+ */
+export function apiBase(): string {
+  const base = process.env.NEXT_PUBLIC_API_URL;
+  if (!base) {
+    throw new Error(
+      'NEXT_PUBLIC_API_URL is not set. Add it to your deployment environment ' +
+        '(Vercel → Settings → Environment Variables) and redeploy — NEXT_PUBLIC_* ' +
+        'values are baked into the bundle at build time.'
+    );
+  }
+  return base.replace(/\/+$/, '');
+}
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
 export async function login(email: string, password: string): Promise<LoginResponse> {
-  const res = await fetch(`${API_BASE}/api/auth/token`, {
+  const res = await fetch(`${apiBase()}/api/auth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ username: email, password }),
@@ -92,7 +111,7 @@ export async function login(email: string, password: string): Promise<LoginRespo
 }
 
 export async function register(params: { email: string; password: string; full_name?: string }): Promise<RegisterResponse> {
-  const res = await fetch(`${API_BASE}/api/auth/register`, {
+  const res = await fetch(`${apiBase()}/api/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
@@ -102,7 +121,7 @@ export async function register(params: { email: string; password: string; full_n
 
 export async function getCurrentUser(signal?: AbortSignal): Promise<{ id: string; email: string; full_name: string; is_active: boolean }> {
   const token = getToken();
-  const res = await fetch(`${API_BASE}/api/auth/me`, {
+  const res = await fetch(`${apiBase()}/api/auth/me`, {
     headers: { Authorization: `Bearer ${token}` },
     signal,
   });
@@ -128,7 +147,7 @@ export function isAuthenticated(): boolean {
 export async function logout(): Promise<void> {
   const token = getToken();
   try {
-    await fetch(`${API_BASE}/api/auth/logout`, {
+    await fetch(`${apiBase()}/api/auth/logout`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
     }).catch(() => {});
@@ -169,7 +188,7 @@ export async function uploadFile(
   const formData = new FormData();
   formData.append('file', file);
 
-  const res = await fetch(`${API_BASE}/api/chat/upload`, {
+  const res = await fetch(`${apiBase()}/api/chat/upload`, {
     method: 'POST',
     headers: {
       ...authHeaders(),
@@ -186,7 +205,7 @@ export async function getDocumentStatus(
   documentId: string
 ): Promise<DocumentStatusResponse> {
   const res = await fetch(
-    `${API_BASE}/api/documents/${encodeURIComponent(documentId)}/status`,
+    `${apiBase()}/api/documents/${encodeURIComponent(documentId)}/status`,
     { headers: authHeaders() }
   );
   return handleResponse<DocumentStatusResponse>(res);
@@ -210,7 +229,7 @@ export async function deleteDocument(
   documentId: string
 ): Promise<DeleteDocumentResponse> {
   const res = await fetch(
-    `${API_BASE}/api/documents/${encodeURIComponent(documentId)}`,
+    `${apiBase()}/api/documents/${encodeURIComponent(documentId)}`,
     { method: 'DELETE', headers: authHeaders() }
   );
 
@@ -234,7 +253,7 @@ export async function sendLearnMessage(
   sessionId: string,
   message: string
 ): Promise<LearnMessageResponse> {
-  const res = await fetch(`${API_BASE}/api/learn/message`, {
+  const res = await fetch(`${apiBase()}/api/learn/message`, {
     method: 'POST',
     headers: {
       ...authHeaders(),
@@ -244,6 +263,30 @@ export async function sendLearnMessage(
     body: JSON.stringify({ message }),
   });
   return handleResponse<LearnMessageResponse>(res);
+}
+
+// ── Async note generation ────────────────────────────────────────────────────
+// A turn that generates notes returns immediately with status "generating_notes".
+// The notes are produced in the background — poll this until the job resolves.
+
+export interface NotesStatusResponse {
+  status: 'generating' | 'completed' | 'failed';
+  notion_pages: NotionPage[];
+}
+
+/**
+ * Poll the status of the background note-generation job for a session. Note the
+ * session id goes in a `session_id` header (underscore), matching this endpoint's
+ * contract — not the `session-id` header the chat endpoints use.
+ */
+export async function getNotesStatus(sessionId: string): Promise<NotesStatusResponse> {
+  const res = await fetch(`${apiBase()}/api/learn/notes-status`, {
+    headers: {
+      ...authHeaders(),
+      session_id: sessionId,
+    },
+  });
+  return handleResponse<NotesStatusResponse>(res);
 }
 
 // ── Notion Public OAuth ──────────────────────────────────────────────────────
@@ -303,7 +346,7 @@ export interface ChatMessagesResponse {
 export interface MessageResponse {
   response: string;
   session_id?: string;
-  status?: 'chatting' | 'completed';
+  status?: 'chatting' | 'completed' | 'generating_notes';
   notion_urls?: string[];
 }
 
@@ -325,7 +368,7 @@ export async function updateChatTitle(
   title: string
 ): Promise<UpdateChatTitleResponse> {
   const res = await fetch(
-    `${API_BASE}/api/chat/chats/${encodeURIComponent(sessionId)}/title`,
+    `${apiBase()}/api/chat/chats/${encodeURIComponent(sessionId)}/title`,
     {
       method: 'PATCH',
       headers: {
@@ -339,7 +382,7 @@ export async function updateChatTitle(
 }
 
 export async function createChat(title = 'New Chat'): Promise<ChatSessionResponse> {
-  const res = await fetch(`${API_BASE}/api/chat/chats`, {
+  const res = await fetch(`${apiBase()}/api/chat/chats`, {
     method: 'POST',
     headers: {
       ...authHeaders(),
@@ -351,14 +394,14 @@ export async function createChat(title = 'New Chat'): Promise<ChatSessionRespons
 }
 
 export async function listChats(): Promise<ChatListResponse> {
-  const res = await fetch(`${API_BASE}/api/chat/chats`, {
+  const res = await fetch(`${apiBase()}/api/chat/chats`, {
     headers: authHeaders(),
   });
   return handleResponse<ChatListResponse>(res);
 }
 
 export async function getMessages(sessionId: string): Promise<ChatMessagesResponse> {
-  const res = await fetch(`${API_BASE}/api/chat/session/${encodeURIComponent(sessionId)}`, {
+  const res = await fetch(`${apiBase()}/api/chat/session/${encodeURIComponent(sessionId)}`, {
     headers: authHeaders(),
   });
   return handleResponse<ChatMessagesResponse>(res);
@@ -376,7 +419,7 @@ export async function sendMessage(
   formData.append('message', message);
   files?.forEach((file) => formData.append('attachments', file));
 
-  const res = await fetch(`${API_BASE}/api/chat/message`, {
+  const res = await fetch(`${apiBase()}/api/chat/message`, {
     method: 'POST',
     headers: {
       ...authHeaders(),
@@ -432,7 +475,7 @@ export async function sendMessageStream(
   formData.append('message', message);
   files?.forEach((file) => formData.append('attachments', file));
 
-  const res = await fetch(`${API_BASE}/api/chat/message/stream`, {
+  const res = await fetch(`${apiBase()}/api/chat/message/stream`, {
     method: 'POST',
     headers: {
       ...authHeaders(),
@@ -510,7 +553,7 @@ export async function sendMessageStream(
 }
 
 export async function resetChat(sessionId: string): Promise<ResetChatResponse> {
-  const res = await fetch(`${API_BASE}/api/chat/reset/${encodeURIComponent(sessionId)}`, {
+  const res = await fetch(`${apiBase()}/api/chat/reset/${encodeURIComponent(sessionId)}`, {
     method: 'POST',
     headers: authHeaders(),
   });
@@ -530,7 +573,7 @@ export async function getNotionConnectUrl(): Promise<NotionConnectResponse> {
       ? `${process.env.NEXT_PUBLIC_APP_URL}/notion/callback`
       : undefined;
 
-  const url = new URL(`${API_BASE}/api/notion/connect`);
+  const url = new URL(`${apiBase()}/api/notion/connect`);
   if (redirectUri) {
     url.searchParams.set('redirect_uri', redirectUri);
   }
@@ -546,7 +589,7 @@ export async function getNotionConnectUrl(): Promise<NotionConnectResponse> {
  * Backend reads the saved token from MongoDB to verify it is still valid.
  */
 export async function getNotionStatus(): Promise<NotionStatusResponse> {
-  const res = await fetch(`${API_BASE}/api/notion/status`, { headers: authHeaders() });
+  const res = await fetch(`${apiBase()}/api/notion/status`, { headers: authHeaders() });
   if (!res.ok) {
     // Treat 404 as "not connected" rather than a hard error.
     if (res.status === 404) return { connected: false };
@@ -560,7 +603,7 @@ export async function getNotionStatus(): Promise<NotionStatusResponse> {
  * Disconnect / remove the saved Notion token from MongoDB.
  */
 export async function disconnectNotion(): Promise<NotionDisconnectResponse> {
-  const res = await fetch(`${API_BASE}/api/notion/disconnect`, {
+  const res = await fetch(`${apiBase()}/api/notion/disconnect`, {
     method: 'POST',
     headers: authHeaders(),
   });
@@ -586,7 +629,7 @@ export async function createNotionTopic(
   sessionId?: string
 ): Promise<string> {
   // Backend takes title/content/session_id as query params, not a JSON body.
-  const url = new URL(`${API_BASE}/api/notion/create-topic`);
+  const url = new URL(`${apiBase()}/api/notion/create-topic`);
   url.searchParams.set('title', title);
   url.searchParams.set('content', content);
   if (sessionId) url.searchParams.set('session_id', sessionId);
@@ -622,7 +665,7 @@ export interface ClearProfileResponse {
 }
 
 export async function getProfile(): Promise<ProfileResponse> {
-  const res = await fetch(`${API_BASE}/api/profile`, { headers: authHeaders() });
+  const res = await fetch(`${apiBase()}/api/profile`, { headers: authHeaders() });
   return handleResponse<ProfileResponse>(res);
 }
 
@@ -635,7 +678,7 @@ export async function uploadResume(file: File): Promise<ResumeUploadResponse> {
   const formData = new FormData();
   formData.append('file', file);
 
-  const res = await fetch(`${API_BASE}/api/profile/resume`, {
+  const res = await fetch(`${apiBase()}/api/profile/resume`, {
     method: 'POST',
     headers: {
       ...authHeaders(),
@@ -651,7 +694,7 @@ export async function uploadResume(file: File): Promise<ResumeUploadResponse> {
 }
 
 export async function clearProfile(): Promise<ClearProfileResponse> {
-  const res = await fetch(`${API_BASE}/api/profile`, {
+  const res = await fetch(`${apiBase()}/api/profile`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
